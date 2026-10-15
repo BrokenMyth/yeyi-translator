@@ -1,0 +1,24 @@
+{
+  "name": "yeyi-translator",
+  "version": "1.0.2",
+  "private": true,
+  "type": "module",
+  "description": "页译：支持 Chrome / Edge、DeepSeek / OpenAI 的整页翻译扩展",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs",
+    "format": "prettier --write src scripts tests manifest.json package.json README.md",
+    "format:check": "prettier --check src scripts tests manifest.json package.json README.md",
+    "test": "npm run test:regression && node tests/browser/run.mjs",
+    "test:regression": "node --test tests/regression/api-connection.test.mjs",
+    "test:browser": "node tests/browser/run.mjs",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
+    "prettier": "^3.9.10",
+    "sharp": "^0.35.5"
+  }
+}

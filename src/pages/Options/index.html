@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>页译 · 插件设置</title>
+    <link rel="stylesheet" href="../shared.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside>
+        <div class="brand">
+          <img src="../../icons/48.png" alt="" />
+          <div>
+            <div class="brand-name">页译</div>
+            <div class="brand-sub">READ BEYOND LANGUAGES</div>
+          </div>
+        </div>
+        <div class="sidebar-label">你的阅读空间</div>
+        <nav>
+          <a href="#api" class="active"><span>◈</span>翻译服务</a
+          ><a href="#preferences"><span>☷</span>阅读偏好</a
+          ><a href="#sites"><span>◎</span>自动翻译</a>
+        </nav>
+        <div class="sidebar-note">
+          <span class="mini-mark">译</span>
+          <p>语言之间，<br />少一点距离。</p>
+          <small>Chrome & Edge<br />Manifest V3 · v1.0.1</small>
+        </div>
+      </aside>
+      <main>
+        <header class="page-heading">
+          <div>
+            <div class="eyebrow">MAKE IT YOURS</div>
+            <h1>让每一页，都读得懂。</h1>
+            <p>连接你自己的 AI 服务，按喜欢的方式阅读。</p>
+          </div>
+          <span class="pill">本机保存 · 自有 Key</span>
+        </header>
+        <form id="settingsForm">
+          <section id="api">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">01</span>
+                <h2>翻译服务</h2>
+              </div>
+              <span>分别配置，随时切换</span>
+            </div>
+            <div class="providers">
+              <fieldset class="provider-card" data-provider="deepseek">
+                <legend class="sr-only">DeepSeek 设置</legend>
+                <div class="provider-heading">
+                  <span class="provider-logo deepseek-logo">D</span>
+                  <div>
+                    <h3>DeepSeek</h3>
+                    <p>中文理解，自然表达</p>
+                  </div>
+                  <label class="use-provider"
+                    ><input
+                      type="radio"
+                      name="provider"
+                      value="deepseek"
+                      aria-label="使用 DeepSeek"
+                    /><span>使用此服务</span></label
+                  >
+                </div>
+                <label class="field"
+                  ><span class="field-title">API Key</span
+                  ><span class="key-input"
+                    ><input
+                      name="deepseekKey"
+                      type="password"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="填写你的 DeepSeek API Key"
+                    /><button
+                      type="button"
+                      class="reveal"
+                      data-key="deepseekKey"
+                      aria-label="显示 DeepSeek Key"
+                    >
+                      显示
+                    </button></span
+                  ></label
+                >
+                <div class="field-row">
+                  <label class="field"
+                    ><span class="field-title">模型</span>
+                    <span class="model-controls">
+                      <select
+                        data-model-picker="deepseek"
+                        aria-label="DeepSeek 可用模型"
+                        hidden
+                      ></select>
+                      <input name="deepseekModel" spellcheck="false" placeholder="deepseek-flash" />
+                      <button type="button" class="models-button" data-models="deepseek">
+                        获取模型
+                      </button>
+                    </span>
+                    <span class="hint model-status" data-model-status="deepseek" role="status"
+                      >填入 Key 后自动获取，也可手动填写模型 ID。</span
+                    >
+                  </label>
+                </div>
+                <label class="field"
+                  ><span class="field-title">Base URL</span
+                  ><input
+                    name="deepseekUrl"
+                    type="url"
+                    spellcheck="false"
+                    placeholder="https://api.deepseek.com"
+                /></label>
+                <div class="provider-footer">
+                  <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer"
+                    >获取 Key ↗</a
+                  ><button type="button" class="test-button" data-test="deepseek">
+                    测试连接 ↗
+                  </button>
+                </div>
+                <p class="hint test-result" data-result="deepseek" role="status"></p>
+              </fieldset>
+              <fieldset class="provider-card" data-provider="openai">
+                <legend class="sr-only">OpenAI 设置</legend>
+                <div class="provider-heading">
+                  <span class="provider-logo openai-logo">O</span>
+                  <div>
+                    <h3>OpenAI</h3>
+                    <p>跨语言，稳定传达</p>
+                  </div>
+                  <label class="use-provider"
+                    ><input
+                      type="radio"
+                      name="provider"
+                      value="openai"
+                      aria-label="使用 OpenAI"
+                    /><span>使用此服务</span></label
+                  >
+                </div>
+                <label class="field"
+                  ><span class="field-title">API Key</span
+                  ><span class="key-input"
+                    ><input
+                      name="openaiKey"
+                      type="password"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="sk-…"
+                    /><button
+                      type="button"
+                      class="reveal"
+                      data-key="openaiKey"
+                      aria-label="显示 OpenAI Key"
+                    >
+                      显示
+                    </button></span
+                  ></label
+                >
+                <div class="field-row">
+                  <label class="field"
+                    ><span class="field-title">模型</span>
+                    <span class="model-controls">
+                      <select
+                        data-model-picker="openai"
+                        aria-label="OpenAI 可用模型"
+                        hidden
+                      ></select>
+                      <input name="openaiModel" spellcheck="false" placeholder="gpt-4.1-mini" />
+                      <button type="button" class="models-button" data-models="openai">
+                        获取模型
+                      </button>
+                    </span>
+                    <span class="hint model-status" data-model-status="openai" role="status"
+                      >填入 Key 后自动获取，也可手动填写模型 ID。</span
+                    >
+                  </label>
+                </div>
+                <label class="field"
+                  ><span class="field-title">Base URL</span
+                  ><input
+                    name="openaiUrl"
+                    type="url"
+                    spellcheck="false"
+                    placeholder="https://api.openai.com/v1"
+                /></label>
+                <div class="provider-footer">
+                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer"
+                    >获取 Key ↗</a
+                  ><button type="button" class="test-button" data-test="openai">测试连接 ↗</button>
+                </div>
+                <p class="hint test-result" data-result="openai" role="status"></p>
+              </fieldset>
+            </div>
+            <p class="hint below-cards">
+              支持官方接口与兼容 Chat Completions 的代理服务。地址可填 API 根路径、/v1 路径或完整
+              /chat/completions 端点。填入 Key
+              后自动获取模型；列表可能包含非对话模型，请选择支持文本对话的模型。测试连接会发送一条短文本，可能产生少量
+              API 费用。
+            </p>
+          </section>
+          <section class="preferences" id="preferences">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">02</span>
+                <h2>阅读偏好</h2>
+              </div>
+              <span>你的页面，你的方式</span>
+            </div>
+            <div class="preference-grid">
+              <label class="field"
+                ><span class="field-title">默认目标语言</span
+                ><select name="targetLanguage" id="targetLanguage"></select>
+                <p class="hint">原文语言自动识别</p></label
+              ><label class="field"
+                ><span class="field-title">默认呈现方式</span
+                ><select name="mode">
+                  <option value="bilingual">换行双语 · 原文下方显示译文</option>
+                  <option value="replace">替换原文 · 在原位置显示译文</option>
+                </select>
+                <p class="hint">两种模式可随时切换，已有译文直接复用</p></label
+              >
+            </div>
+            <div class="preference-toggle">
+              <div>
+                <strong>网页悬浮按钮</strong>
+                <p class="hint">在网页右下角快速翻译、暂停与恢复原文</p>
+              </div>
+              <label class="switch"
+                ><input
+                  name="showFloatingButton"
+                  type="checkbox"
+                  aria-label="显示网页悬浮按钮" /><span></span
+              ></label>
+            </div>
+          </section>
+          <section id="sites">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">03</span>
+                <h2>自动翻译网站</h2>
+              </div>
+              <span>默认手动，按站点开启</span>
+            </div>
+            <div class="sites-card">
+              <label class="field"
+                ><span class="field-title">每行一个网站主机名</span
+                ><textarea
+                  name="autoTranslateSites"
+                  rows="3"
+                  spellcheck="false"
+                  placeholder="docs.example.com&#10;news.example.com"
+                ></textarea>
+              </label>
+              <p class="hint">
+                只匹配填写的主机名，不包含其他子域。打开这些网站后，会自动发送页面文字到当前服务。也可以在工具栏弹窗中添加当前网站。
+              </p>
+            </div>
+          </section>
+          <div class="privacy-note">
+            <span>◇</span>
+            <p>
+              <strong>由你掌握的数据</strong><br />Key
+              和偏好仅保存在本机。网页文字直接发送到你配置的
+              API；页译没有中转服务器。原文与译文只在当前页面内存中保存，刷新后清空。
+            </p>
+          </div>
+          <div class="save-bar">
+            <div id="saveStatus" role="status">设置保存后生效</div>
+            <button type="submit" class="button primary" id="saveButton">
+              保存设置 <span>↗</span>
+            </button>
+          </div>
+        </form>
+        <footer>页译 · 把注意力留给内容<span>替换译文 / 段落双语 / 一键恢复</span></footer>
+      </main>
+    </div>
+    <script src="index.js" defer></script>
+  </body>
+</html>

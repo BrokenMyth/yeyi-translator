@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>页译 · 翻译此页</title>
+    <link rel="stylesheet" href="../shared.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header>
+        <div class="brand">
+          <img src="../../icons/48.png" alt="" />
+          <div>
+            <div class="brand-name">页译</div>
+            <div class="brand-sub">READ BEYOND LANGUAGES</div>
+          </div>
+        </div>
+        <button
+          class="settings-icon"
+          id="settings"
+          aria-label="打开插件设置"
+          title="API 与插件设置"
+        >
+          ⚙
+        </button>
+      </header>
+      <section class="site">
+        <div class="site-symbol" aria-hidden="true">↗</div>
+        <div class="site-info">
+          <div id="siteName">当前网页</div>
+          <div class="site-caption">把世界，读成你的语言</div>
+        </div>
+        <span class="pill" id="statusChip">准备就绪</span>
+      </section>
+      <div class="notice" id="notice" role="status" hidden></div>
+      <section class="language-card">
+        <div>
+          <span class="eyebrow">FROM</span>
+          <div class="source-language">自动识别<span class="auto-dot"></span></div>
+        </div>
+        <span class="language-arrow" aria-hidden="true">→</span
+        ><label
+          ><span class="eyebrow">TO</span
+          ><select id="targetLanguage" aria-label="目标语言"></select
+        ></label>
+      </section>
+      <section class="mode-section">
+        <div class="section-label">翻译呈现<span>两种方式，自由切换</span></div>
+        <div class="modes" role="group" aria-label="翻译呈现方式">
+          <button class="mode-card selected" data-mode="bilingual" aria-pressed="true">
+            <span class="mode-preview bilingual-preview" aria-hidden="true"
+              ><i></i><b></b><i></i><b></b></span
+            ><span class="mode-title">换行双语<span class="selected-dot"></span></span
+            ><span class="mode-description">原文下方，逐段对照</span>
+          </button>
+          <button class="mode-card" data-mode="replace" aria-pressed="false">
+            <span class="mode-preview replace-preview" aria-hidden="true"
+              ><b></b><b></b><b></b></span
+            ><span class="mode-title">替换原文<span class="selected-dot"></span></span
+            ><span class="mode-description">保留排版，沉浸阅读</span>
+          </button>
+        </div>
+      </section>
+      <section class="provider-row">
+        <label for="provider">翻译服务</label>
+        <div>
+          <span class="connection-dot" id="connectionDot"></span
+          ><select id="provider" aria-label="翻译服务">
+            <option value="deepseek">DeepSeek</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+      </section>
+      <section class="progress-card" id="progressCard" hidden>
+        <div class="progress-heading">
+          <span id="progressLabel">正在翻译</span><span id="progressCount">0 / 0 段</span>
+        </div>
+        <progress id="progress" max="1" value="0" aria-label="翻译进度"></progress>
+        <div class="progress-detail">
+          <span id="progressDetail">优先翻译当前屏幕</span
+          ><button id="retry" hidden>重试失败部分 ↻</button>
+        </div>
+      </section>
+      <div class="actions">
+        <button class="button primary" id="translate">
+          <span id="translateLabel">翻译此页</span
+          ><span id="translateArrow" aria-hidden="true">↗</span></button
+        ><button class="button" id="restore" disabled>恢复原文</button>
+      </div>
+      <section class="auto-site">
+        <div><span>此网站自动翻译</span><small id="autoSiteHint">仅对当前主机名生效</small></div>
+        <label class="switch"
+          ><input type="checkbox" id="autoSite" aria-label="此网站自动翻译" /><span></span
+        ></label>
+      </section>
+      <footer>
+        <span class="privacy-dot"></span>自有 Key · 译文仅存当前页面<button id="settingsLink">
+          设置 ↗
+        </button>
+      </footer>
+    </main>
+    <script src="index.js" defer></script>
+  </body>
+</html>

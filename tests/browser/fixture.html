@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>The open web · Test article</title>
+    <style>
+      body {
+        font: 17px/1.8 system-ui;
+        color: #25324a;
+        margin: 0;
+        background: #f5f7fb;
+      }
+      main {
+        max-width: 760px;
+        margin: 40px auto;
+        padding: 38px 55px;
+        background: white;
+        border-radius: 20px;
+      }
+      nav {
+        display: flex;
+        gap: 20px;
+        font-size: 14px;
+        color: #7d87a3;
+      }
+      h1 {
+        font-size: 36px;
+        line-height: 1.3;
+      }
+      a {
+        color: #6651c9;
+      }
+      button {
+        background: #f2effb;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 16px;
+        color: #6852b6;
+      }
+      td,
+      th {
+        text-align: left;
+        padding: 10px 26px 10px 0;
+      }
+      pre {
+        background: #f2f3f7;
+        padding: 15px;
+        border-radius: 10px;
+      }
+      textarea,
+      input {
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+      }
+      .spacer {
+        height: 900px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <a href="#intro">Home</a><a href="#below">Explore</a><button id="menu">Open menu</button
+        ><output id="clicks" translate="no">0</output>
+      </nav>
+      <h1>Welcome to the open web</h1>
+      <p id="intro">
+        Read <a href="https://example.org/guide" id="guide"><strong>the guide</strong></a> and
+        explore.
+      </p>
+      <p id="detail">This article preserves <strong>important details</strong> and useful links.</p>
+      <table>
+        <tr>
+          <th>Planet</th>
+          <th>Distance</th>
+        </tr>
+        <tr>
+          <td>Earth</td>
+          <td>One astronomical unit</td>
+        </tr>
+      </table>
+      <p id="hidden" hidden>Hidden source text.</p>
+      <pre id="code"><code>const greeting = "Hello";</code></pre>
+      <textarea id="textarea">Private draft text.</textarea
+      ><input id="input" value="Private input value." />
+      <div id="editable" contenteditable="true">Editable source text.</div>
+      <p id="excluded" translate="no">Do not translate this paragraph.</p>
+      <div id="dynamic"></div>
+      <div class="spacer"></div>
+      <p id="below">This paragraph is below the first screen.</p>
+    </main>
+    <script>
+      document.querySelector("#menu").addEventListener("click", () => {
+        document.querySelector("#clicks").textContent = String(
+          Number(document.querySelector("#clicks").textContent) + 1,
+        );
+      });
+    </script>
+  </body>
+</html>

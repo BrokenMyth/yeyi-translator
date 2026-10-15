@@ -1,0 +1,239 @@
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+  color: #25263e;
+  background: #f6f7fb;
+  font-size: 14px;
+  font-synthesis: none;
+  color-scheme: light;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+select,
+input[type="checkbox"],
+input[type="radio"] {
+  cursor: pointer;
+}
+button {
+  transition:
+    background 0.15s,
+    transform 0.15s;
+}
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #c9c3fc;
+  outline-offset: 3px;
+}
+button {
+  border: 0;
+}
+a {
+  color: #5847ce;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+[hidden] {
+  display: none !important;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand img {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+.brand-name {
+  font-size: 20px;
+  font-weight: 760;
+  letter-spacing: 1px;
+}
+.brand-sub {
+  font-size: 10px;
+  color: #8a8b9e;
+  letter-spacing: 0.3px;
+  margin-top: 1px;
+}
+.muted {
+  color: #838399;
+}
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8b88a8;
+  font-weight: 650;
+}
+.pill {
+  font-size: 10px;
+  color: #6d64a1;
+  background: #f0edf9;
+  border-radius: 20px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #e1e2ec;
+  border-radius: 10px;
+  background: white;
+  color: #34354d;
+  padding: 11px 12px;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+input::placeholder,
+textarea::placeholder {
+  color: #b2b1c2;
+}
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: #bfb8ed;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #6050df;
+}
+label.field {
+  display: block;
+}
+.field-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.hint {
+  color: #9090a4;
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 7px 0 0;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 17px;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid #e1e1ec;
+  background: white;
+  color: #68657e;
+}
+.button:hover:not(:disabled) {
+  background: #f5f3fd;
+}
+.button.primary {
+  background: #5b4bd9;
+  border-color: #5b4bd9;
+  color: white;
+  box-shadow: 0 4px 10px #5347cb18;
+}
+.button.primary:hover:not(:disabled) {
+  background: #4d3cc7;
+}
+.button.quiet {
+  background: transparent;
+  border-color: transparent;
+  padding: 5px;
+  color: #8a879e;
+}
+.notice {
+  font-size: 12px;
+  line-height: 1.75;
+  padding: 11px 13px;
+  border: 1px solid #e8e4fb;
+  background: #f6f3ff;
+  border-radius: 11px;
+  color: #71629e;
+  overflow-wrap: anywhere;
+}
+.notice.error {
+  background: #fff6ee;
+  border-color: #f6dfc8;
+  color: #a15d28;
+}
+.notice.success {
+  background: #eef9f4;
+  border-color: #cbeadb;
+  color: #368069;
+}
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+}
+.switch input {
+  opacity: 0;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  position: absolute;
+  z-index: 1;
+}
+.switch span {
+  width: 34px;
+  height: 20px;
+  border-radius: 12px;
+  background: #dedee8;
+  transition: background 0.15s;
+}
+.switch span:after {
+  content: "";
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 3px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px #17132e15;
+  transition: transform 0.15s;
+}
+.switch input:checked + span {
+  background: #6251df;
+}
+.switch input:checked + span:after {
+  transform: translateX(14px);
+}
+.switch input:focus-visible + span {
+  outline: 3px solid #c9c3fc;
+  outline-offset: 3px;
+}
