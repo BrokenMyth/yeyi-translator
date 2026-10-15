@@ -84,7 +84,7 @@ test("缓存命中跨越多个批次立即显示，翻译队列和请求只含�
     `<p id="missing">Uncached top source.</p>${Array.from({ length: 40 }, (_, index) => `<p class="cached">Cached paragraph ${index}.</p>`).join("")}`,
   );
   await expect(page.locator(".cached [data-yeyi-owned=translation]")).toHaveCount(40);
-  assert.deepEqual(await requestTexts(page), ["Uncached top source."]);
+  await expect.poll(() => requestTexts(page)).toEqual(["Uncached top source."]);
   assert((await page.evaluate(() => lookups.length)) > 1);
   assert.equal(
     await page.evaluate(() =>
@@ -103,7 +103,7 @@ test("全部命中不进入待翻译队列，不创建任何翻译请求", async
   await expect(page.locator("p [data-yeyi-owned=translation]")).toHaveCount(2);
   assert.deepEqual(await requestTexts(page), []);
   assert.equal(await page.evaluate(() => engine.getState().phase), "watching");
-  assert.equal(await page.evaluate(() => engine.nextBatch().length), 0);
+  assert.equal(await page.evaluate(() => engine.nextBatch().tasks.length), 0);
 });
 
 test("网络批次未结束时，新出现的缓存命中仍可独立显示", async (t) => {
@@ -143,7 +143,7 @@ test("恢复并重启后忽略旧缓存查询，未完成查询不会进入翻�
 test("清理期间忽略旧缓存命中，缺项正常翻译且保留原文恢复能力", async (t) => {
   const page = await startPage(t, "<p>Cached source.</p>", { deferLookup: true });
   await page.evaluate(() => engine.clearCache());
-  assert.deepEqual(await requestTexts(page), ["Cached source."]);
+  await expect.poll(() => requestTexts(page)).toEqual(["Cached source."]);
   await releaseLookup(page, 0);
   await expect(page.locator("[data-yeyi-owned=translation]")).toHaveCount(0);
   await page.evaluate(() => {
@@ -169,5 +169,5 @@ test("查询失败回退到正常翻译，停用缓存不发起预检", async (t
   assert.deepEqual(await requestTexts(page), ["Uncached source."]);
   const disabled = await startPage(t, "<p>Cached source.</p>", { cacheEnabled: false });
   assert.equal(await disabled.evaluate(() => lookups.length), 0);
-  assert.deepEqual(await requestTexts(disabled), ["Cached source."]);
+  await expect.poll(() => requestTexts(disabled)).toEqual(["Cached source."]);
 });

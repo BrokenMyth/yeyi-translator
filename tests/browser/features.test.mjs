@@ -354,3 +354,34 @@ test("命中缓存立即显示，同页慢请求只包含未缓存文字", async
   assert.deepEqual(sources, ["Uncached slow browser source."]);
   await expect(page.locator("#missing [data-yeyi-owned=translation]")).toHaveCount(0);
 });
+
+for (const cacheEnabled of [false, true]) {
+  test(`连续动态内容合并为一次 HTTP 请求（缓存${cacheEnabled ? "开启" : "关闭"}）`, async (t) => {
+    await settings({ cacheEnabled });
+    const page = await article(t, '<main><p class="burst">Burst source 0.</p></main>');
+    const before = fixture.requests.length;
+    await page.getByRole("button", { name: "翻译此页", exact: true }).evaluate((button) => {
+      // 从引擎开始发布活动状态时计时，让新增内容确实发生在首次扫描之后。
+      const observer = new MutationObserver(() => {
+        if (button.getAttribute("aria-pressed") !== "true") return;
+        observer.disconnect();
+        for (let index = 1; index <= 3; index++)
+          setTimeout(() => {
+            const paragraph = document.createElement("p");
+            paragraph.className = "burst";
+            paragraph.textContent = `Burst source ${index}.`;
+            document.querySelector("main").append(paragraph);
+          }, index * 40);
+      });
+      observer.observe(button, { attributes: true, attributeFilter: ["aria-pressed"] });
+      button.click();
+    });
+    await expect(page.locator(".burst [data-yeyi-owned=translation]")).toHaveCount(4);
+    const sent = fixture.requests.slice(before);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(
+      JSON.parse(sent[0].body.messages.at(-1).content).segments.flatMap((item) => item.parts),
+      Array.from({ length: 4 }, (_, index) => `Burst source ${index}.`),
+    );
+  });
+}

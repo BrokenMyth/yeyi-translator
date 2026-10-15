@@ -2,6 +2,10 @@ import { collectGroups, compareDocumentOrder, createChunks } from "./model.js";
 import { sendMessage } from "../shared/messaging.js";
 import { visibleTranslationScope } from "./visibility.js";
 
+const BATCH_MAX_SEGMENTS = 18;
+const BATCH_MAX_CHARS = 4800;
+const BATCH_WAIT_MS = 200;
+
 /** 使用同一字符计量约束缓存预检与 API 批次，保留中文上下文的预算。 */
 function chunkSize(chunk) {
   return chunk.parts.reduce((sum, part) => sum + part.length, 0) + (chunk.context?.length || 0);
@@ -55,6 +59,8 @@ export class TranslationEngine {
     this.error = "";
     /** @type {ReturnType<typeof setTimeout>|null} 合并动态内容扫描的计时器。 */
     this.scanTimer = null;
+    /** @type {ReturnType<typeof setTimeout>|null} 未满批次的固定聚合窗口，不随新增内容重置。 */
+    this.batchTimer = null;
     /** @type {ReturnType<typeof setInterval>|null} 请求期间的 worker 保活计时器。 */
     this.keepAlive = null;
     /** @type {MutationObserver} 只在会话开启时订阅页面内容。 */
@@ -192,10 +198,10 @@ export class TranslationEngine {
       while (index < tasks.length && current()) {
         const batch = [];
         let length = 0;
-        while (index < tasks.length && batch.length < 18) {
+        while (index < tasks.length && batch.length < BATCH_MAX_SEGMENTS) {
           const task = tasks[index];
           const size = chunkSize(task.chunk);
-          if (batch.length && length + size > 4800) break;
+          if (batch.length && length + size > BATCH_MAX_CHARS) break;
           batch.push(task);
           length += size;
           index++;
@@ -324,7 +330,7 @@ export class TranslationEngine {
     }
   }
 
-  /** 重新协调可见 DOM 和记录；失效段落的迟到结果会被忽略。@returns {void} 无返回值。 */
+  /** 重新协调可见 DOM 和记录；失效段落的迟到结果会被忽略。@returns {Promise<void>|undefined} 本次缓存预检完成，可在合批发送前等待新增缺项入队。 */
   scan() {
     if (this.config.visibleOnly && !this.frameVisible) return;
     const groups = collectGroups(document, this.ownership);
@@ -392,8 +398,11 @@ export class TranslationEngine {
             return { unit, chunk };
           }),
       );
-    if (lookups.length) void this.lookupCache(lookups, this.runId, this.cacheRevision);
+    const lookup = lookups.length
+      ? this.lookupCache(lookups, this.runId, this.cacheRevision)
+      : undefined;
     this.publish();
+    return lookup;
   }
 
   /** 开始或继续整页翻译。@param {Object} config 后台提供的脱敏配置。@param {boolean} [retry] 是否重新排队失败片段。@returns {void} 无返回值。 */
@@ -450,6 +459,8 @@ export class TranslationEngine {
     window.removeEventListener("resize", this.onViewportChange);
     clearTimeout(this.scanTimer);
     this.scanTimer = null;
+    clearTimeout(this.batchTimer);
+    this.batchTimer = null;
     clearInterval(this.keepAlive);
     this.keepAlive = null;
     for (const unit of this.units.values())
@@ -487,9 +498,13 @@ export class TranslationEngine {
     this.publish();
   }
 
-  /** 按阅读顺序或视口优先级选择未缓存的有界批次，窗口外任务保持等待。@returns {Object[]} 段落与片段任务。 */
+  /**
+   * 按阅读顺序或视口优先级预选未缓存片段，不提前占用任务。
+   * 达到片段或字符预算即视为满批；不足时继续等待其他扫描结果，发送时才标记 inflight。
+   * @returns {{tasks:Object[],full:boolean}} 当前批次与是否应立即发送。
+   */
   nextBatch() {
-    if (this.config.visibleOnly && !this.frameVisible) return [];
+    if (this.config.visibleOnly && !this.frameVisible) return { tasks: [], full: false };
     const candidates = [...this.units.values()]
       .filter(
         (unit) =>
@@ -503,32 +518,57 @@ export class TranslationEngine {
       for (const chunk of unit.chunks) {
         if (chunk.state !== "pending") continue;
         const size = chunkSize(chunk);
-        if (tasks.length && (length + size > 4800 || tasks.length >= 18)) return tasks;
-        chunk.state = "inflight";
+        if (tasks.length && length + size > BATCH_MAX_CHARS) return { tasks, full: true };
         tasks.push({ unit, chunk });
         length += size;
+        if (tasks.length >= BATCH_MAX_SEGMENTS || length >= BATCH_MAX_CHARS)
+          return { tasks, full: true };
       }
     }
-    return tasks;
+    return { tasks, full: false };
   }
 
-  /** 当前批次及其补译结束后再处理下一批，使译文按阅读顺序逐批显示。@returns {void} 无返回值。 */
-  pump() {
+  /**
+   * 满批立即发送；不足一批时只启动一次 200 毫秒窗口，避免逐条更新产生零散请求或持续延后。
+   * 窗口到期重新扫描并完成新增缓存预检，再按最新视口选择任务；命中照常即时显示。
+   * 同一会话始终只有一个网络批次，拆批补译也共享此名额。
+   * @param {boolean} [flush] 是否已等完聚合窗口，允许发送尾批。
+   */
+  pump(flush = false) {
     if (!this.active) return;
     if (!this.workers) {
-      const tasks = this.nextBatch();
-      if (tasks.length) {
-        this.workers++;
-        this.phase = "translating";
-        void this.runBatch(tasks, this.runId);
+      const { tasks, full } = this.nextBatch();
+      if (!tasks.length || full || flush) {
+        clearTimeout(this.batchTimer);
+        this.batchTimer = null;
+        if (tasks.length) {
+          for (const { chunk } of tasks) chunk.state = "inflight";
+          this.workers++;
+          this.phase = "translating";
+          void this.runBatch(tasks, this.runId);
+        }
+      } else if (!this.batchTimer) {
+        const runId = this.runId;
+        const timer = setTimeout(async () => {
+          clearTimeout(this.scanTimer);
+          this.scanTimer = null;
+          await this.scan();
+          // 预检可能触发满批发送、暂停或重启；旧回调不能清除新窗口或发送旧任务。
+          if (!this.active || this.runId !== runId || this.batchTimer !== timer) return;
+          this.batchTimer = null;
+          this.pump(true);
+        }, BATCH_WAIT_MS);
+        this.batchTimer = timer;
       }
     }
     if (!this.workers)
-      this.phase = [...this.units.values()].some((unit) =>
-        unit.chunks.some((chunk) => chunk.state === "checking"),
-      )
-        ? "translating"
-        : "watching";
+      this.phase =
+        this.batchTimer ||
+        [...this.units.values()].some((unit) =>
+          unit.chunks.some((chunk) => chunk.state === "checking"),
+        )
+          ? "translating"
+          : "watching";
     this.publish();
   }
 
