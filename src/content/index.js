@@ -1,6 +1,7 @@
 import { TranslationEngine } from "./engine.js";
 import { FloatingControl } from "./components/Floating/index.js";
 import { sendMessage } from "../shared/messaging.js";
+import { matchesShortcut } from "../shared/shortcut.js";
 
 if (!globalThis.__yeyiInstalled) {
   globalThis.__yeyiInstalled = true;
@@ -77,8 +78,31 @@ async function initialize() {
     );
   }
 
+  // 每个 frame 监听自己的键盘输入，子帧只转发到主文档，统一复用悬浮按钮的切换和防重入逻辑。
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+        !event.isTrusted ||
+        event.defaultPrevented ||
+        document.designMode.toLowerCase() === "on" ||
+        !matchesShortcut(event, latestConfig.translationShortcut)
+      )
+        return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (isTop) void control.perform("toggle-translation");
+      else sendMessage({ type: "PAGE_SHORTCUT" }).catch(() => {});
+    },
+    true,
+  );
+
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     if (sender.id !== chrome.runtime.id) return false;
+    if (message.type === "TOGGLE_TRANSLATION" && isTop) {
+      control.perform("toggle-translation").then(() => respond(true));
+      return true;
+    }
     if (message.type === "GET_STATE") {
       respond(isTop ? combinedState() : engine.getState());
       return false;

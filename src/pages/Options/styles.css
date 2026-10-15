@@ -327,6 +327,31 @@ section + section {
 .preference-toggle:last-child {
   border-radius: 0 0 16px 16px;
 }
+.shortcut-preference {
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.shortcut-preference > div:first-child {
+  flex: 1 1 220px;
+}
+.shortcut-controls {
+  width: 210px;
+  max-width: 100%;
+}
+.shortcut-controls input {
+  text-align: center;
+  cursor: pointer;
+}
+.shortcut-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.shortcut-actions .button {
+  font-size: 10px;
+  padding: 6px 10px;
+}
 .cache-card {
   background: white;
   border: 1px solid #e5e2ed;

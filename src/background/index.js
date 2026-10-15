@@ -173,6 +173,7 @@ async function handleMessage(message, sender) {
               "targetLanguage",
               "mode",
               "showFloatingButton",
+              "translationShortcut",
               "autoTranslateSites",
               "visibleOnly",
               "cacheEnabled",
@@ -220,6 +221,10 @@ async function handleMessage(message, sender) {
       }
     case "PAGE_ACTION":
       return pageAction(message, sender);
+    case "PAGE_SHORTCUT":
+      if (!sender.tab || sender.frameId === 0 || !isTranslatableUrl(sender.tab.url))
+        throw new TranslationError("FORBIDDEN", "无效的网页快捷键操作。");
+      return chrome.tabs.sendMessage(sender.tab.id, { type: "TOGGLE_TRANSLATION" }, { frameId: 0 });
     case "PAGE_PREFERENCES":
       return pagePreferences(message, sender);
     case "FRAME_READY":

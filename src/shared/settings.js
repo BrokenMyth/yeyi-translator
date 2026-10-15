@@ -1,3 +1,5 @@
+import { normalizeShortcut } from "./shortcut.js";
+
 /** @typedef {'deepseek'|'openai'} ProviderId 支持的 API 服务。 */
 /**
  * @typedef {Object} ProviderSettings 一个服务的本机配置。
@@ -12,6 +14,7 @@
  * @property {string} targetLanguage 目标语言代码。
  * @property {'bilingual'|'replace'} mode 默认排版。
  * @property {boolean} showFloatingButton 是否显示网页入口。
+ * @property {string} translationShortcut 切换翻译与恢复原文的快捷键；空字符串表示停用。
  * @property {boolean} visibleOnly 是否只翻译当前视口可见的段落。
  * @property {boolean} cacheEnabled 是否跨页面、刷新和重启保存译文缓存。
  * @property {number} cacheLimitMb 缓存容量提醒阈值（MiB），超出后继续保存。
@@ -44,6 +47,7 @@ export const DEFAULT_SETTINGS = {
   targetLanguage: "zh-CN",
   mode: "bilingual",
   showFloatingButton: true,
+  translationShortcut: "Ctrl+X",
   visibleOnly: false,
   cacheEnabled: false,
   cacheLimitMb: 512,
@@ -131,6 +135,9 @@ export function normalizeSettings(input = {}) {
       : "zh-CN",
     mode: input.mode === "replace" ? "replace" : "bilingual",
     showFloatingButton: input.showFloatingButton !== false,
+    translationShortcut: normalizeShortcut(
+      input.translationShortcut ?? DEFAULT_SETTINGS.translationShortcut,
+    ),
     visibleOnly: input.visibleOnly === true,
     cacheEnabled: input.cacheEnabled === true,
     cacheLimitMb,
@@ -147,6 +154,7 @@ export function publicSettings(settings) {
     targetLanguage: settings.targetLanguage,
     mode: settings.mode,
     showFloatingButton: settings.showFloatingButton,
+    translationShortcut: settings.translationShortcut,
     visibleOnly: settings.visibleOnly,
     cacheEnabled: settings.cacheEnabled,
     autoTranslateSites: settings.autoTranslateSites,

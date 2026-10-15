@@ -1,4 +1,5 @@
-import { LANGUAGES, normalizeSettings } from "../../shared/settings.js";
+import { DEFAULT_SETTINGS, LANGUAGES, normalizeSettings } from "../../shared/settings.js";
+import { shortcutFromEvent } from "../../shared/shortcut.js";
 import { sendMessage, populateLanguages } from "../../shared/messaging.js";
 import { ModelPicker } from "./components/ModelPicker/index.js";
 import { TranslationCache } from "../../background/cache.js";
@@ -29,7 +30,8 @@ function readForm() {
     ),
     targetLanguage: form.elements.targetLanguage.value,
     mode: form.elements.mode.value,
-    showFloatingButton: form.elements.showFloatingButton.checked,
+    showFloatingButton: !form.elements.hideFloatingButton.checked,
+    translationShortcut: form.elements.translationShortcut.value,
     visibleOnly: form.elements.visibleOnly.checked,
     cacheEnabled: form.elements.cacheEnabled.checked,
     cacheLimitMb: form.elements.cacheLimitMb.value,
@@ -98,6 +100,27 @@ function markDirty(event) {
   markProvider();
 }
 form.addEventListener("input", markDirty);
+
+/** 直接录入按键组合；Tab 保留焦点导航，Escape 退出录入，不触发表单提交或浏览器剪切。 */
+form.elements.translationShortcut.addEventListener("keydown", (event) => {
+  if (event.key === "Tab") return;
+  event.preventDefault();
+  if (event.key === "Escape") {
+    event.target.blur();
+    return;
+  }
+  const shortcut = shortcutFromEvent(event);
+  if (!shortcut) return;
+  event.target.value = shortcut;
+  markDirty();
+});
+document.querySelectorAll("[data-shortcut]").forEach((button) =>
+  button.addEventListener("click", () => {
+    form.elements.translationShortcut.value =
+      button.dataset.shortcut === "reset" ? DEFAULT_SETTINGS.translationShortcut : "";
+    markDirty();
+  }),
+);
 
 /** 格式化浏览器实际统计的字节数。 */
 function formatBytes(bytes) {
@@ -237,7 +260,8 @@ async function initialize() {
   form.elements.provider.value = settings.provider;
   form.elements.targetLanguage.value = settings.targetLanguage;
   form.elements.mode.value = settings.mode;
-  form.elements.showFloatingButton.checked = settings.showFloatingButton;
+  form.elements.hideFloatingButton.checked = !settings.showFloatingButton;
+  form.elements.translationShortcut.value = settings.translationShortcut;
   form.elements.visibleOnly.checked = settings.visibleOnly;
   form.elements.cacheEnabled.checked = settings.cacheEnabled;
   form.elements.cacheLimitMb.value = settings.cacheLimitMb;

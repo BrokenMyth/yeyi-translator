@@ -235,16 +235,41 @@
                   aria-label="只翻译可视页面" /><span></span
               ></label>
             </div>
+            <div class="preference-toggle shortcut-preference">
+              <div>
+                <label for="translationShortcut"><strong>快捷翻译</strong></label>
+                <p class="hint" id="shortcutHint">
+                  默认 Ctrl+X，切换翻译与恢复原文。点击右侧输入框后按下新组合；支持 Ctrl / Alt /
+                  Meta 搭配字母、数字或 F1～F12，可附加 Shift。输入框内保留剪切等操作
+                </p>
+              </div>
+              <div class="shortcut-controls">
+                <input
+                  id="translationShortcut"
+                  name="translationShortcut"
+                  type="text"
+                  readonly
+                  aria-describedby="shortcutHint"
+                  placeholder="已停用"
+                />
+                <div class="shortcut-actions">
+                  <button type="button" class="button subtle" data-shortcut="reset">
+                    恢复默认
+                  </button>
+                  <button type="button" class="button subtle" data-shortcut="clear">停用</button>
+                </div>
+              </div>
+            </div>
             <div class="preference-toggle">
               <div>
-                <strong>网页悬浮按钮</strong>
-                <p class="hint">在网页右下角快速翻译、暂停与恢复原文</p>
+                <strong>隐藏悬浮球</strong>
+                <p class="hint">默认不隐藏。开启隐藏后，启动翻译时显示，恢复原文后自动隐藏</p>
               </div>
               <label class="switch"
                 ><input
-                  name="showFloatingButton"
+                  name="hideFloatingButton"
                   type="checkbox"
-                  aria-label="显示网页悬浮按钮" /><span></span
+                  aria-label="隐藏悬浮球" /><span></span
               ></label>
             </div>
           </section>
