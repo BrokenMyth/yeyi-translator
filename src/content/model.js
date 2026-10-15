@@ -3,6 +3,9 @@ const SKIP =
 const PROSE = "article,main,[role=main],[role=article],.markdown-body";
 const PROSE_BLOCK = "p,li,td,th,dt,dd,figcaption,caption,summary,h1,h2,h3,h4,h5,h6";
 const CODE_SYNTAX = "pre,.hljs,.highlight,[class*=language-],[class*=highlight-source-]";
+// Discord 的哈希后缀随版本变化；使用语义 ID 和类名前缀排除作者、回复作者及成员名。
+const DISCORD_NAMES =
+  '[id^="message-username-"],[class*="username_"],[class*="displayName_"],[class*="nickname_"],[data-user-id]';
 const BLOCK_DISPLAYS = new Set([
   "block",
   "flow-root",
@@ -72,6 +75,9 @@ export function collectGroups(doc, ownership) {
   const visibility = new Map();
   const codeLabels = new Map();
   const codeEligibility = new Map();
+  const discord =
+    /(^|\.)(discord\.com|discordapp\.com)$/i.test(doc.location?.hostname || "") ||
+    Boolean(doc.querySelector('#app-mount [id^="chat-messages-"],[data-list-id="chat-messages"]'));
   /** 以原文判断节点类型，避免替换模式写入译文后改变扫描结果。@param {Text} text 文本节点。@returns {string} 当前仍受扩展管理的原文或网站新文本。 */
   function originalOf(text) {
     const previous = ownership.get(text);
@@ -141,12 +147,16 @@ export function collectGroups(doc, ownership) {
     const style = styleOf(element);
     const ownVisible =
       !element.matches(SKIP) &&
+      !(discord && element.matches(DISCORD_NAMES)) &&
       (element.tagName !== "CODE" || translatableCode(element)) &&
       !element.hidden &&
       element.getAttribute("aria-hidden") !== "true" &&
       style.display !== "none" &&
       style.visibility !== "hidden" &&
       style.visibility !== "collapse" &&
+      Number(style.opacity) !== 0 &&
+      !/^rect\(0px[, ]+0px[, ]+0px[, ]+0px\)$/.test(style.clip) &&
+      style.clipPath !== "inset(50%)" &&
       style.contentVisibility !== "hidden";
     const result =
       ownVisible &&

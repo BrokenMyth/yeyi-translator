@@ -38,6 +38,7 @@ export class SettingsPanel {
       <label class="field">翻译服务<select name="provider" aria-label="翻译服务"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option></select></label>
       <div class="modes"><button type="button" data-mode="bilingual" aria-pressed="true">原文 / 译文</button><button type="button" data-mode="replace" aria-pressed="false">替换原文</button></div>
       <label class="auto-row">本站自动翻译<input type="checkbox" name="autoSite" aria-label="本站自动翻译" /></label>
+      <label class="auto-row">只翻译可视页面<input type="checkbox" name="visibleOnly" aria-label="只翻译可视页面" /></label>
       <div class="status" role="status">点击翻译，开始阅读。</div>
       <div class="auxiliary"><button type="button" data-action="toggle-pause" hidden>暂停翻译</button><button type="button" data-action="retry" hidden>重试失败部分</button></div>
       <button type="button" class="all-settings">完整设置 ↗</button>`;
@@ -50,9 +51,10 @@ export class SettingsPanel {
       this.element
         .querySelector(`[name="${name}"]`)
         .addEventListener("change", (event) => this.save({ [name]: event.target.value }));
-    this.element
-      .querySelector('[name="autoSite"]')
-      .addEventListener("change", (event) => this.save({ autoSite: event.target.checked }));
+    for (const name of ["autoSite", "visibleOnly"])
+      this.element
+        .querySelector(`[name="${name}"]`)
+        .addEventListener("change", (event) => this.save({ [name]: event.target.checked }));
     for (const button of this.element.querySelectorAll("[data-mode]"))
       button.addEventListener("click", () => this.save({ mode: button.dataset.mode }));
     for (const button of this.element.querySelectorAll("[data-action]"))
@@ -104,6 +106,7 @@ export class SettingsPanel {
       this.element.querySelector(`[name="${name}"]`).value = this.config[name];
     this.element.querySelector('[name="autoSite"]').checked =
       this.config.autoTranslateSites?.includes(location.hostname.toLowerCase()) || false;
+    this.element.querySelector('[name="visibleOnly"]').checked = Boolean(this.config.visibleOnly);
     const mode = this.state.total ? this.state.mode : this.config.mode;
     for (const button of this.element.querySelectorAll("[data-mode]"))
       button.setAttribute("aria-pressed", String(button.dataset.mode === mode));

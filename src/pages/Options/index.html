@@ -22,11 +22,12 @@
           <a href="#api" class="active"><span>◈</span>翻译服务</a
           ><a href="#preferences"><span>☷</span>阅读偏好</a
           ><a href="#sites"><span>◎</span>自动翻译</a>
+          <a href="#cache"><span>▤</span>翻译缓存</a>
         </nav>
         <div class="sidebar-note">
           <span class="mini-mark">译</span>
           <p>语言之间，<br />少一点距离。</p>
-          <small>Chrome & Edge<br />Manifest V3 · v1.0.1</small>
+          <small>Chrome & Edge<br />Manifest V3 · v1.1.0</small>
         </div>
       </aside>
       <main>
@@ -222,6 +223,18 @@
             </div>
             <div class="preference-toggle">
               <div>
+                <strong>只翻译可视页面</strong>
+                <p class="hint">默认关闭。开启后仅翻译视口内可见段落，滚动出现新内容时立即处理</p>
+              </div>
+              <label class="switch"
+                ><input
+                  name="visibleOnly"
+                  type="checkbox"
+                  aria-label="只翻译可视页面" /><span></span
+              ></label>
+            </div>
+            <div class="preference-toggle">
+              <div>
                 <strong>网页悬浮按钮</strong>
                 <p class="hint">在网页右下角快速翻译、暂停与恢复原文</p>
               </div>
@@ -256,12 +269,82 @@
               </p>
             </div>
           </section>
+          <section id="cache">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">04</span>
+                <h2>翻译缓存</h2>
+              </div>
+              <span>本机保存 · 可导入导出</span>
+            </div>
+            <div class="cache-card">
+              <div class="cache-toggle">
+                <div>
+                  <strong>启用持久翻译缓存</strong>
+                  <p class="hint">默认关闭。开启后复用已缓存的译文，刷新页面或重启浏览器后仍有效</p>
+                </div>
+                <label class="switch"
+                  ><input
+                    name="cacheEnabled"
+                    type="checkbox"
+                    aria-label="启用持久翻译缓存" /><span></span
+                ></label>
+              </div>
+              <div class="cache-details">
+                <div>
+                  <span class="field-title">当前缓存</span>
+                  <p class="cache-usage">
+                    <span id="cacheUsage">正在读取…</span
+                    ><span
+                      id="cacheWarning"
+                      class="cache-warning"
+                      role="img"
+                      aria-label="缓存警告"
+                      hidden
+                      >!</span
+                    >
+                  </p>
+                </div>
+                <label class="field"
+                  ><span class="field-title">容量提醒阈值（MB）</span
+                  ><input
+                    name="cacheLimitMb"
+                    type="number"
+                    min="1"
+                    max="10240"
+                    step="1"
+                    aria-label="容量提醒阈值（MB）"
+                /></label>
+              </div>
+              <p class="hint">
+                超过阈值仍继续保存，并显示感叹号，不自动删除。关闭缓存保留已有数据，重新开启后可继续复用。
+              </p>
+              <p class="hint cache-notice" id="cacheNotice" role="status" hidden></p>
+              <div class="cache-actions">
+                <button type="button" class="button" id="exportCache" data-cache-action>
+                  导出缓存
+                </button>
+                <button type="button" class="button" id="importCache" data-cache-action>
+                  导入缓存
+                </button>
+                <button type="button" class="button" id="clearCache" data-cache-action>
+                  清空缓存
+                </button>
+                <input id="cacheFile" type="file" accept=".json,application/json" hidden />
+              </div>
+              <p class="hint" id="cacheResult" role="status"></p>
+              <p class="hint">
+                缓存按接口、模型、目标语言和原文区分。导入仅合并新条目，保留本机已有译文。导出不含
+                Key 和设置，但包含译文，请谨慎分享。
+              </p>
+            </div>
+          </section>
           <div class="privacy-note">
             <span>◇</span>
             <p>
               <strong>由你掌握的数据</strong><br />Key
               和偏好仅保存在本机。网页文字直接发送到你配置的
-              API；页译没有中转服务器。原文与译文只在当前页面内存中保存，刷新后清空。
+              API；页译没有中转服务器。默认只在页面内存保存译文；开启缓存后，译文与原文摘要会持久保存在本机，可导出或清理。
             </p>
           </div>
           <div class="save-bar">

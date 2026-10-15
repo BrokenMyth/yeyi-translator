@@ -6,8 +6,10 @@ import {
   LANGUAGES,
 } from "../shared/settings.js";
 import { translateBatch, listModels, TranslationError } from "./api.js";
+import { TranslationCache, translateWithCache } from "./cache.js";
 
 const inflight = new Map();
+const cache = new TranslationCache();
 let settingsQueue = Promise.resolve();
 const ready = initialize();
 
@@ -41,6 +43,7 @@ async function updateSettings(update) {
     .then(async () => {
       const current = await getSettings();
       const next = normalizeSettings(update(current));
+      if (current.cacheEnabled !== next.cacheEnabled) cache.invalidate();
       await chrome.storage.local.set({ settings: next });
       await broadcastSettings(publicSettings(next));
       return publicSettings(next);
@@ -119,12 +122,13 @@ async function pagePreferences(message, sender) {
     typeof patch !== "object" ||
     Array.isArray(patch) ||
     Object.keys(patch).some(
-      (key) => !["provider", "targetLanguage", "mode", "autoSite"].includes(key),
+      (key) => !["provider", "targetLanguage", "mode", "autoSite", "visibleOnly"].includes(key),
     ) ||
     ("provider" in patch && !["deepseek", "openai"].includes(patch.provider)) ||
     ("targetLanguage" in patch && !LANGUAGES.some(([id]) => id === patch.targetLanguage)) ||
     ("mode" in patch && !["bilingual", "replace"].includes(patch.mode)) ||
-    ("autoSite" in patch && typeof patch.autoSite !== "boolean")
+    ("autoSite" in patch && typeof patch.autoSite !== "boolean") ||
+    ("visibleOnly" in patch && typeof patch.visibleOnly !== "boolean")
   )
     throw new TranslationError("BAD_INPUT", "无效的翻译设置。");
   const tab = await chrome.tabs.get(sender.tab.id);
@@ -133,7 +137,7 @@ async function pagePreferences(message, sender) {
   const hostname = new URL(tab.url).hostname.toLowerCase();
   return updateSettings((current) => {
     const next = { ...current };
-    for (const key of ["provider", "targetLanguage", "mode"])
+    for (const key of ["provider", "targetLanguage", "mode", "visibleOnly"])
       if (key in patch) next[key] = patch[key];
     if ("autoSite" in patch) {
       const sites = new Set(current.autoTranslateSites);
@@ -171,6 +175,9 @@ async function handleMessage(message, sender) {
               "mode",
               "showFloatingButton",
               "autoTranslateSites",
+              "visibleOnly",
+              "cacheEnabled",
+              "cacheLimitMb",
             ].includes(key),
           ),
         ),
@@ -178,6 +185,33 @@ async function handleMessage(message, sender) {
     case "OPEN_OPTIONS":
       await chrome.runtime.openOptionsPage();
       return null;
+    case "GET_CACHE_STATS": {
+      requireTrusted(sender);
+      const settings = await getSettings();
+      const stats = await cache.stats();
+      return {
+        ...stats,
+        limitBytes: settings.cacheLimitMb * 1024 * 1024,
+        overLimit: stats.bytes > settings.cacheLimitMb * 1024 * 1024,
+      };
+    }
+    case "CLEAR_CACHE": {
+      requireTrusted(sender);
+      const stats = await cache.clear();
+      const tabs = await chrome.tabs.query({});
+      await Promise.allSettled(
+        tabs
+          .filter((tab) => isTranslatableUrl(tab.url))
+          .map((tab) => chrome.tabs.sendMessage(tab.id, { type: "CACHE_CLEARED" })),
+      );
+      return stats;
+    }
+    case "EXPORT_CACHE":
+      requireTrusted(sender);
+      return cache.exportData();
+    case "IMPORT_CACHE":
+      requireTrusted(sender);
+      return cache.importData(message.data, message.revision);
     case "GET_TAB_STATE":
       requireTrusted(sender);
       try {
@@ -258,9 +292,9 @@ async function handleMessage(message, sender) {
         controller,
       });
       try {
-        return await translateBatch({
-          provider: settings.providers[settings.provider],
-          targetLanguage: settings.targetLanguage,
+        return await translateWithCache({
+          cache,
+          settings,
           segments: message.segments,
           signal: controller.signal,
         });

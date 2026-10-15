@@ -1,5 +1,6 @@
 import { collectGroups, compareDocumentOrder, createChunks } from "./model.js";
 import { sendMessage } from "../shared/messaging.js";
+import { hasVisibleText } from "./visibility.js";
 
 /**
  * 单个 frame 的整页翻译会话。原文、译文与缓存均只存在此页面的内存中。
@@ -20,6 +21,8 @@ export class TranslationEngine {
     this.cache = new Map();
     /** @type {number} 缓存键及值占用的 UTF-16 字符数。 */
     this.cacheChars = 0;
+    /** @type {number} 清理缓存后阻止旧请求重新写回页面缓存。 */
+    this.cacheRevision = 0;
     /** @type {Object|null} 当前运行的脱敏配置快照。 */
     this.config = null;
     /** @type {'idle'|'translating'|'watching'|'paused'|'error'} 可显示的会话阶段。 */
@@ -43,6 +46,22 @@ export class TranslationEngine {
       if (this.active && records.some((record) => !this.isOwnedMutation(record)))
         this.scheduleScan();
     });
+    /** @type {Function} 捕获内部滚动容器的事件，视口模式更快扫描新露出的文字。 */
+    this.onViewportChange = () => this.scheduleScan(this.config?.visibleOnly ? 60 : 400);
+    /** @type {boolean} 子帧必须先确认外层页面中实际有交集。 */
+    this.frameVisible = window === window.top;
+    /** @type {IntersectionObserver|null} 浏览器负责跨域 iframe 的外层裁剪和滚动通知。 */
+    this.frameObserver =
+      window === window.top
+        ? null
+        : new IntersectionObserver((entries) => {
+            const entry = entries[0];
+            this.frameVisible =
+              entry.isIntersecting &&
+              entry.intersectionRect.width > 0 &&
+              entry.intersectionRect.height > 0;
+            if (this.active && this.config.visibleOnly) this.scheduleScan(0);
+          });
   }
 
   /** 返回可展示的进度，永远不包括原文和密钥。@returns {Object} 本 frame 状态。 */
@@ -115,7 +134,7 @@ export class TranslationEngine {
   }
 
   /** 把频繁的 DOM 更新合并到一次扫描。@returns {void} 无返回值。 */
-  scheduleScan() {
+  scheduleScan(delay = 400) {
     if (this.scanTimer || !this.active) return;
     this.scanTimer = setTimeout(() => {
       this.scanTimer = null;
@@ -123,7 +142,14 @@ export class TranslationEngine {
         this.scan();
         this.pump();
       }
-    }, 400);
+    }, delay);
+  }
+
+  /** 清空页面复用缓存，保留当前显示的译文和原文恢复记录。 */
+  clearCache() {
+    this.cacheRevision++;
+    this.cache.clear();
+    this.cacheChars = 0;
   }
 
   /** 撤回段落的自有写入；网站后来修改的文字绝不会被旧原文覆盖。@param {Object} unit 段落。@returns {void} 无返回值。 */
@@ -207,6 +233,7 @@ export class TranslationEngine {
 
   /** 重新协调可见 DOM 和记录；失效段落的迟到结果会被忽略。@returns {void} 无返回值。 */
   scan() {
+    if (this.config.visibleOnly && !this.frameVisible) return;
     const groups = collectGroups(document, this.ownership);
     this.mutate(() => {
       for (const [element, unit] of this.units) {
@@ -243,6 +270,7 @@ export class TranslationEngine {
           nodes: records.map((record) => ({ ...record, lastWritten: record.original })),
           chunks: [],
         };
+        if (this.config.visibleOnly && !hasVisibleText(records)) continue;
         unit.chunks = createChunks(unit);
         unit.nodes.forEach((record) => this.ownership.set(record.node, record));
         const cached = this.cache.get(this.cacheKey(unit));
@@ -274,6 +302,10 @@ export class TranslationEngine {
     this.config = { ...config };
     this.runId = crypto.randomUUID();
     this.active = true;
+    if (config.visibleOnly && this.frameObserver) {
+      this.frameVisible = false;
+      this.frameObserver.observe(document.documentElement);
+    }
     this.phase = "translating";
     this.error = "";
     this.workers = 0;
@@ -286,6 +318,8 @@ export class TranslationEngine {
       for (const unit of this.units.values()) this.renderUnit(unit);
     });
     this.observe();
+    document.addEventListener("scroll", this.onViewportChange, { capture: true, passive: true });
+    window.addEventListener("resize", this.onViewportChange, { passive: true });
     // Chrome MV3 的空闲计时由扩展消息重置；只在有网络请求时维持会话。
     this.keepAlive = setInterval(() => {
       if (this.workers) sendMessage({ type: "PING" }).catch(() => {});
@@ -300,6 +334,9 @@ export class TranslationEngine {
     this.active = false;
     this.runId = crypto.randomUUID();
     this.observer.disconnect();
+    this.frameObserver?.disconnect();
+    document.removeEventListener("scroll", this.onViewportChange, true);
+    window.removeEventListener("resize", this.onViewportChange);
     clearTimeout(this.scanTimer);
     this.scanTimer = null;
     clearInterval(this.keepAlive);
@@ -338,11 +375,13 @@ export class TranslationEngine {
 
   /** 按文档阅读顺序选择有界批次，新插入的段落也按当前位置排序。@returns {Object[]} 段落与片段任务。 */
   nextBatch() {
+    if (this.config.visibleOnly && !this.frameVisible) return [];
     const candidates = [...this.units.values()]
       .filter(
         (unit) =>
           unit.element.isConnected && unit.chunks.some((chunk) => chunk.state === "pending"),
       )
+      .filter((unit) => !this.config.visibleOnly || hasVisibleText(unit.nodes))
       .sort((a, b) => compareDocumentOrder(a.element, b.element));
     const tasks = [];
     let length = 0;
@@ -378,6 +417,7 @@ export class TranslationEngine {
   /** 请求批次；输出不完整时二分缩小失败范围，单片段失败仍保留原文供手动重试。@param {Object[]} tasks 片段任务。@param {string} runId 运行代号。@param {boolean} [subBatch] 是否共用父批次的并发名额。@returns {Promise<void>} 批次及其补译结束。 */
   async runBatch(tasks, runId, subBatch = false) {
     if (!this.active || runId !== this.runId) return;
+    const cacheRevision = this.cacheRevision;
     try {
       const translated = await sendMessage({
         type: "TRANSLATE_BATCH",
@@ -397,7 +437,7 @@ export class TranslationEngine {
           chunk.translated = results.get(chunk.id);
           chunk.state = "done";
           if (unit.chunks.every((item) => item.state === "done")) {
-            this.remember(unit);
+            if (cacheRevision === this.cacheRevision) this.remember(unit);
             this.renderUnit(unit);
           }
         }

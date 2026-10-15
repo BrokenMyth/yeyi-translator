@@ -318,11 +318,74 @@ section + section {
   background: white;
   border: 1px solid #e5e2ed;
   border-top: 0;
-  border-radius: 0 0 16px 16px;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 19px 22px;
+}
+.preference-toggle:last-child {
+  border-radius: 0 0 16px 16px;
+}
+.cache-card {
+  background: white;
+  border: 1px solid #e5e2ed;
+  border-radius: 16px;
+  padding: 21px;
+}
+.cache-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.cache-toggle strong,
+.cache-card .field-title {
+  font-size: 11px;
+  color: #80778e;
+  font-weight: 550;
+}
+.cache-card .hint {
+  font-size: 10px;
+}
+.cache-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 24px;
+  margin-top: 20px;
+}
+.cache-usage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  color: #625078;
+}
+.cache-warning {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  background: #fff0d6;
+  color: #9a5b14;
+  font-weight: 750;
+}
+.cache-warning[hidden] {
+  display: none;
+}
+.cache-notice {
+  color: #a56928;
+}
+.cache-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.cache-actions .button {
+  font-size: 11px;
 }
 .preference-toggle strong {
   font-size: 11px;

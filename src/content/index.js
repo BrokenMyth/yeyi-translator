@@ -90,7 +90,14 @@ async function initialize() {
     if (message.type === "CONFIG_CHANGED") {
       latestConfig = message.config;
       control?.setConfig(latestConfig);
+      if (engine.active && engine.config.visibleOnly !== latestConfig.visibleOnly)
+        engine.start(latestConfig, false);
       if (!engine.config) control?.update({ ...engine.getState(), mode: latestConfig.mode });
+      respond(true);
+      return false;
+    }
+    if (message.type === "CACHE_CLEARED") {
+      engine.clearCache();
       respond(true);
       return false;
     }
@@ -119,7 +126,6 @@ async function initialize() {
     return false;
   });
 
-  window.addEventListener("scroll", () => engine.scheduleScan(), { passive: true });
   window.addEventListener("pagehide", () => {
     engine.stop(false);
     sendMessage({ type: "FRAME_GONE" }).catch(() => {});
