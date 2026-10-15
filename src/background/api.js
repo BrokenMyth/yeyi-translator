@@ -37,6 +37,7 @@ export function validateSegments(segments) {
       !item.parts.length ||
       item.parts.length > 100 ||
       item.parts.some((part) => typeof part !== "string" || part.length > 1500) ||
+      (item.dictionaryOnly !== undefined && typeof item.dictionaryOnly !== "boolean") ||
       (item.context !== undefined &&
         (typeof item.context !== "string" || item.context.length > 1000))
     ) {

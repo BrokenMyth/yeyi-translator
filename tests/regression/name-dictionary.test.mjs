@@ -13,9 +13,92 @@ import {
   lookupCachedTranslations,
 } from "../../src/background/cache.js";
 import { normalizeSettings, publicSettings } from "../../src/shared/settings.js";
+import { createChunks } from "../../src/content/model.js";
+import { cacheKey } from "../../src/background/cache.js";
 
 const entry = { src: "Example Hero", dst: "示例角色", info: "测试角色" };
 const other = { src: "Other Hero", dst: "另一角色", info: "" };
+
+test("字典先于中文跳过生效，跨节点汉字人名及中文正文在本机替换", async () => {
+  const dictionary = [
+    { src: "桐生", dst: "Kiryu" },
+    { src: "桐生一馬", dst: "桐生一马" },
+    { src: "王小明", dst: "Wang Xiaoming" },
+    { src: "Hero (A)+", dst: "指定角色" },
+  ];
+  for (const targetLanguage of ["zh-CN", "en"]) {
+    const unit = {
+      id: "han",
+      nodes: [{ original: " 桐生" }, { original: "一馬与王小明见面，其他中文保留。 " }],
+    };
+    const segments = createChunks(unit, true);
+    assert(segments.length && segments.every((segment) => segment.dictionaryOnly));
+    const translated = await translateBatch({
+      provider: { apiKey: "" },
+      targetLanguage,
+      segments,
+      signal: new AbortController().signal,
+      nameDictionary: dictionary,
+      fetchImpl: () => assert.fail("本机字典检查不应请求 API"),
+    });
+    assert.equal(
+      translated.flatMap((segment) => segment.parts).join(""),
+      " 桐生一马与Wang Xiaoming见面，其他中文保留。 ",
+    );
+  }
+  const translated = await translateBatch({
+    provider: { apiKey: "" },
+    targetLanguage: "zh-CN",
+    segments: [
+      { id: "literal", parts: ["这是 Hero (A)+，未命中部分保留。"], dictionaryOnly: true },
+    ],
+    signal: new AbortController().signal,
+    nameDictionary: dictionary,
+  });
+  assert.deepEqual(translated[0].parts, ["这是 指定角色，未命中部分保留。"]);
+});
+
+test("空字典本机检查保持原文，停用时恢复中文跳过且普通外文仍请求翻译", async () => {
+  const unit = { id: "han", nodes: [{ original: "王小明与其他中文。" }] };
+  assert.deepEqual(createChunks(unit), []);
+  const segments = createChunks(unit, true);
+  const translated = await translateBatch({
+    provider: { apiKey: "" },
+    targetLanguage: "en",
+    segments,
+    signal: new AbortController().signal,
+  });
+  assert.deepEqual(translated[0].parts, ["王小明与其他中文。"]);
+  const mixed = createChunks(
+    { id: "mixed", nodes: [{ original: "王小明。 Read this guide before starting. 中文保留。" }] },
+    true,
+  );
+  assert(mixed.some((segment) => segment.dictionaryOnly));
+  assert(
+    mixed.some(
+      (segment) =>
+        !segment.dictionaryOnly && segment.parts.includes("Read this guide before starting. "),
+    ),
+  );
+});
+
+test("本机字典片段与远程翻译片段缓存隔离，不接受无效本机标记", async () => {
+  const segment = { id: "one", parts: ["王小明"] };
+  assert.notEqual(
+    await cacheKey("same", segment),
+    await cacheKey("same", { ...segment, dictionaryOnly: true }),
+  );
+  await assert.rejects(
+    () =>
+      translateBatch({
+        provider: {},
+        targetLanguage: "zh-CN",
+        segments: [{ ...segment, dictionaryOnly: "true" }],
+        signal: new AbortController().signal,
+      }),
+    (error) => error.code === "BAD_INPUT",
+  );
+});
 
 test("跨内联节点的人名仍进入字典提示，不跨段落误匹配，正则字符按字面匹配", () => {
   assert.deepEqual(matchingNames([entry], [{ parts: ["Meet Example", " Hero today."] }]), [entry]);

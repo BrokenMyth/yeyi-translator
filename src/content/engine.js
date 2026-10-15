@@ -16,6 +16,7 @@ function segmentsOf(tasks) {
   return tasks.map(({ chunk }) => ({
     id: chunk.id,
     parts: chunk.parts,
+    ...(chunk.dictionaryOnly ? { dictionaryOnly: true } : {}),
     ...(chunk.context ? { context: chunk.context } : {}),
   }));
 }
@@ -55,6 +56,10 @@ export class TranslationEngine {
     this.sequence = 0;
     /** @type {number} 当前运行尚未结束的批次数，上限为一，补译共用同一名额。 */
     this.workers = 0;
+    /** @type {Object|null} 发送前检查的独立令牌，避免重入及旧会话回调干扰新会话。 */
+    this.dispatchToken = null;
+    /** @type {Set<Promise<void>>} 当前会话尚未完成的缓存预检。 */
+    this.cacheLookups = new Set();
     /** @type {string} 可安全展示的最近错误。 */
     this.error = "";
     /** @type {ReturnType<typeof setTimeout>|null} 合并动态内容扫描的计时器。 */
@@ -170,6 +175,8 @@ export class TranslationEngine {
   /** 清空页面复用缓存，保留当前显示的译文和原文恢复记录。 */
   clearCache() {
     this.cacheRevision++;
+    this.dispatchToken = null;
+    this.cacheLookups = new Set();
     this.cache.clear();
     this.cacheChars = 0;
     for (const unit of this.units.values())
@@ -371,7 +378,7 @@ export class TranslationEngine {
           chunks: [],
         };
         if (this.scope && !this.scope.has(element)) continue;
-        unit.chunks = createChunks(unit);
+        unit.chunks = createChunks(unit, Boolean(this.config.nameDictionarySignature));
         unit.nodes.forEach((record) => this.ownership.set(record.node, record));
         const cached = this.cache.get(this.cacheKey(unit));
         if (cached && cached.value.length === unit.chunks.length) {
@@ -401,6 +408,11 @@ export class TranslationEngine {
     const lookup = lookups.length
       ? this.lookupCache(lookups, this.runId, this.cacheRevision)
       : undefined;
+    if (lookup) {
+      const pending = this.cacheLookups;
+      pending.add(lookup);
+      void lookup.finally(() => pending.delete(lookup));
+    }
     this.publish();
     return lookup;
   }
@@ -418,6 +430,8 @@ export class TranslationEngine {
     }
     this.config = { ...config };
     this.runId = crypto.randomUUID();
+    this.dispatchToken = null;
+    this.cacheLookups = new Set();
     this.active = true;
     if (config.visibleOnly && this.frameObserver) {
       this.frameVisible = false;
@@ -453,6 +467,8 @@ export class TranslationEngine {
     const oldRun = this.runId;
     this.active = false;
     this.runId = crypto.randomUUID();
+    this.dispatchToken = null;
+    this.cacheLookups = new Set();
     this.observer.disconnect();
     this.frameObserver?.disconnect();
     document.removeEventListener("scroll", this.onViewportChange, true);
@@ -499,6 +515,40 @@ export class TranslationEngine {
   }
 
   /**
+   * 每批发送前协调页面、最新视口和全部缓存预检；等待期间的 DOM 变化也必须重新扫描。
+   * @param {boolean} flush 是否允许发送未满批次。
+   * @returns {Promise<void>} 检查和派发完成，不等待翻译响应。
+   */
+  async dispatchBatch(flush) {
+    const token = {};
+    const runId = this.runId;
+    this.dispatchToken = token;
+    try {
+      while (this.active && this.runId === runId && this.dispatchToken === token) {
+        clearTimeout(this.scanTimer);
+        this.scanTimer = null;
+        this.scan();
+        if (this.cacheLookups.size) {
+          await Promise.all([...this.cacheLookups]);
+          continue;
+        }
+        const { tasks, full } = this.nextBatch();
+        if (!tasks.length || (!full && !flush)) return;
+        for (const { chunk } of tasks) chunk.state = "inflight";
+        this.workers++;
+        this.phase = "translating";
+        void this.runBatch(tasks, runId);
+        return;
+      }
+    } finally {
+      if (this.dispatchToken === token) {
+        this.dispatchToken = null;
+        this.pump();
+      }
+    }
+  }
+
+  /**
    * 按阅读顺序或视口优先级预选未缓存片段，不提前占用任务。
    * 达到片段或字符预算即视为满批；不足时继续等待其他扫描结果，发送时才标记 inflight。
    * @returns {{tasks:Object[],full:boolean}} 当前批次与是否应立即发送。
@@ -530,33 +580,27 @@ export class TranslationEngine {
 
   /**
    * 满批立即发送；不足一批时只启动一次 200 毫秒窗口，避免逐条更新产生零散请求或持续延后。
-   * 窗口到期重新扫描并完成新增缓存预检，再按最新视口选择任务；命中照常即时显示。
+   * 满批和窗口到期统一经过发送前检查；命中照常即时显示。
    * 同一会话始终只有一个网络批次，拆批补译也共享此名额。
    * @param {boolean} [flush] 是否已等完聚合窗口，允许发送尾批。
+   * @returns {void} 无返回值。
    */
   pump(flush = false) {
     if (!this.active) return;
-    if (!this.workers) {
+    if (!this.workers && !this.dispatchToken) {
       const { tasks, full } = this.nextBatch();
       if (!tasks.length || full || flush) {
         clearTimeout(this.batchTimer);
         this.batchTimer = null;
         if (tasks.length) {
-          for (const { chunk } of tasks) chunk.state = "inflight";
-          this.workers++;
-          this.phase = "translating";
-          void this.runBatch(tasks, this.runId);
+          void this.dispatchBatch(flush);
         }
       } else if (!this.batchTimer) {
         const runId = this.runId;
-        const timer = setTimeout(async () => {
-          clearTimeout(this.scanTimer);
-          this.scanTimer = null;
-          await this.scan();
-          // 预检可能触发满批发送、暂停或重启；旧回调不能清除新窗口或发送旧任务。
+        const timer = setTimeout(() => {
           if (!this.active || this.runId !== runId || this.batchTimer !== timer) return;
           this.batchTimer = null;
-          this.pump(true);
+          void this.dispatchBatch(true);
         }, BATCH_WAIT_MS);
         this.batchTimer = timer;
       }
@@ -564,6 +608,7 @@ export class TranslationEngine {
     if (!this.workers)
       this.phase =
         this.batchTimer ||
+        this.dispatchToken ||
         [...this.units.values()].some((unit) =>
           unit.chunks.some((chunk) => chunk.state === "checking"),
         )
@@ -575,6 +620,18 @@ export class TranslationEngine {
   /** 请求批次；输出不完整时二分缩小失败范围，单片段失败仍保留原文供手动重试。@param {Object[]} tasks 片段任务。@param {string} runId 运行代号。@param {boolean} [subBatch] 是否共用父批次的并发名额。@returns {Promise<void>} 批次及其补译结束。 */
   async runBatch(tasks, runId, subBatch = false) {
     if (!this.active || runId !== this.runId) return;
+    if (subBatch) {
+      this.scan();
+      tasks = tasks.filter(({ unit, chunk }) => {
+        if (this.units.get(unit.element) !== unit) return false;
+        if (this.scope && !this.scope.has(unit.element)) {
+          chunk.state = "pending";
+          return false;
+        }
+        return true;
+      });
+      if (!tasks.length) return;
+    }
     const cacheRevision = this.cacheRevision;
     try {
       const translated = await sendMessage({

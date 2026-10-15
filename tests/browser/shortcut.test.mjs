@@ -102,6 +102,29 @@ after(async () => {
 });
 
 test("默认 Ctrl+X 与悬浮球共用翻译、恢复和再次开启的状态", async (t) => {
+  // 缓存可能先渲染，再收到后台确认；第二次开启时主动延迟确认，锁定此时序。
+  await worker.evaluate(() => {
+    const send = chrome.tabs.sendMessage.bind(chrome.tabs);
+    let starts = 0;
+    globalThis.restoreShortcutSend = () => {
+      chrome.tabs.sendMessage = send;
+    };
+    chrome.tabs.sendMessage = async (...args) => {
+      const result = await send(...args);
+      if (args[1]?.type === "PAGE_COMMAND" && args[1]?.action === "start" && ++starts === 2)
+        return new Promise((resolve) => {
+          globalThis.confirmShortcutStart = () => resolve(result);
+        });
+      return result;
+    };
+  });
+  t.after(() =>
+    worker.evaluate(() => {
+      globalThis.restoreShortcutSend();
+      delete globalThis.restoreShortcutSend;
+      delete globalThis.confirmShortcutStart;
+    }),
+  );
   await expect(options.getByRole("checkbox", { name: "隐藏悬浮球" })).not.toBeChecked();
   const page = await article(t);
   await expect(control(page)).toBeVisible();
@@ -113,6 +136,12 @@ test("默认 Ctrl+X 与悬浮球共用翻译、恢复和再次开启的状态", 
   await expect(control(page)).toBeVisible();
   await page.getByRole("button", { name: "翻译此页", exact: true }).click();
   await expect(translation(page)).toHaveCount(1);
+  await expect
+    .poll(() => worker.evaluate(() => typeof globalThis.confirmShortcutStart))
+    .toBe("function");
+  await expect(page.getByRole("button", { name: "恢复原文", exact: true })).toBeDisabled();
+  await worker.evaluate(() => globalThis.confirmShortcutStart());
+  await expect(page.getByRole("button", { name: "恢复原文", exact: true })).toBeEnabled();
   await page.keyboard.press("Control+x");
   await expect(page.locator("#source")).toHaveText("Shortcut source paragraph.");
 });

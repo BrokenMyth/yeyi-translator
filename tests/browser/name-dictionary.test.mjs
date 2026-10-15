@@ -70,6 +70,8 @@ beforeEach(async () => {
     settings: {
       ...current,
       provider: "deepseek",
+      mode: "bilingual",
+      targetLanguage: "zh-CN",
       cacheEnabled: true,
       visibleOnly: false,
       autoTranslateSites: [],
@@ -190,6 +192,48 @@ test("导入后正在翻译的页面立即换用人名，停用保留数据并�
   await options.locator("#nameDictionaryEnabled").check();
   await expect(options.locator("#nameResult")).toContainText("已启用");
   await expect(page.locator("#source [data-yeyi-owned=translation]")).toHaveText(entry.dst);
+});
+
+test("汉字人名字典优先于中文跳过，双语和替换模式支持停用、恢复与跨页面缓存", async (t) => {
+  await upload([
+    { src: "桐生一馬", dst: "桐生一马" },
+    { src: "王小明", dst: "Wang Xiaoming" },
+  ]);
+  await expect(options.locator("#nameCount")).toHaveText("共 2 条");
+  const requests = fixture.requests.length;
+  for (const mode of ["bilingual", "replace"]) {
+    for (const targetLanguage of ["zh-CN", "en"]) {
+      const current = (await message({ type: "GET_SETTINGS" })).data;
+      await message({ type: "SAVE_SETTINGS", settings: { ...current, mode, targetLanguage } });
+      const page = await context.newPage();
+      t.after(() => page.close());
+      await page.route(`${fixture.url}/han-names`, (route) =>
+        route.fulfill({
+          contentType: "text/html; charset=utf-8",
+          body: '<!doctype html><meta charset="utf-8"><p id="han"> 桐生<b>一馬</b>与王小明见面，其他中文保留。 </p><p id="plain">这些中文保持原样。</p>',
+        }),
+      );
+      await page.goto(`${fixture.url}/han-names`);
+      await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+      const translated = " 桐生一马与Wang Xiaoming见面，其他中文保留。 ";
+      const original = " 桐生一馬与王小明见面，其他中文保留。 ";
+      if (mode === "bilingual")
+        await expect(page.locator("#han [data-yeyi-owned=translation]")).toHaveText(translated);
+      else await expect(page.locator("#han")).toHaveText(translated);
+      assert.equal(await page.locator("#plain").textContent(), "这些中文保持原样。");
+      assert.equal(fixture.requests.length, requests);
+      await message({ type: "SET_NAME_DICTIONARY_ENABLED", enabled: false });
+      await expect(page.locator("#han")).toHaveText(original);
+      await message({ type: "SET_NAME_DICTIONARY_ENABLED", enabled: true });
+      if (mode === "bilingual")
+        await expect(page.locator("#han [data-yeyi-owned=translation]")).toHaveText(translated);
+      else await expect(page.locator("#han")).toHaveText(translated);
+      await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+      await expect(page.locator("#han")).toHaveText(original);
+      await page.close();
+    }
+  }
+  assert.equal(fixture.requests.length, requests);
 });
 
 test("网页内容脚本无法读写字典，公开配置只含摘要", async (t) => {

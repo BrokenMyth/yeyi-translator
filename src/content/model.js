@@ -227,8 +227,8 @@ export function textFragments(text, preserveAll = false) {
     }));
 }
 
-/** 为需要翻译的外文构造有界 API 任务，中文仅作为可选上下文并保留节点位置。@param {Object} unit 段落。@returns {Object[]} 每项含 id、parts、context 和节点内片段索引。 */
-export function createChunks(unit) {
+/** 为外文及本机字典检查构造有界任务；字典启用时中文先交后台本机替换，绝不作为正文请求 API。@param {Object} unit 段落。@param {boolean} [checkNames] 是否存在有效人名字典。@returns {Object[]} 含节点位置与 dictionaryOnly 标记的片段。 */
+export function createChunks(unit, checkNames = false) {
   const chinese = isChineseText(unit.nodes.map((record) => record.original).join(""));
   for (const record of unit.nodes) record.fragments = textFragments(record.original, chinese);
   const context =
@@ -244,6 +244,7 @@ export function createChunks(unit) {
   let parts = [];
   let locations = [];
   let length = 0;
+  let dictionaryOnly = false;
   /** 结束当前 API 片段。@returns {void} 无返回值。 */
   function flush() {
     if (!parts.length) return;
@@ -251,6 +252,7 @@ export function createChunks(unit) {
       id: `${unit.id}:${chunks.length}`,
       parts,
       locations,
+      ...(dictionaryOnly ? { dictionaryOnly: true } : {}),
       ...(context ? { context } : {}),
       state: "pending",
       translated: null,
@@ -261,7 +263,12 @@ export function createChunks(unit) {
   }
   unit.nodes.forEach((record, nodeIndex) => {
     record.fragments.forEach((fragment, fragmentIndex) => {
-      if (fragment.preserve) return;
+      const local = fragment.preserve && checkNames && /\p{L}/u.test(fragment.text);
+      if (fragment.preserve && !local) return;
+      // 字典检查与远程翻译分开合片，保留中文字句不受模型改写。
+      if (local !== dictionaryOnly) flush();
+      dictionaryOnly = local;
+      fragment.preserve = false;
       splitText(fragment.text).forEach((part) => {
         if (parts.length >= 40 || length + part.length > 2800) flush();
         parts.push(part);

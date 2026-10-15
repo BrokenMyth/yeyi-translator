@@ -250,3 +250,100 @@ test("等待期间所有内容被隐藏时取消发送，重新显示后仍可�
   await page.clock.runFor(600);
   assert.deepEqual(await batches(page), [["Hide and show source."]]);
 });
+
+test("前一批结束后立即重查满批，隐藏和移除的段落不再发送", async (t) => {
+  const page = await startPage(
+    t,
+    Array.from({ length: 54 }, (_, i) => `<p>Source ${i}.</p>`).join(""),
+  );
+  await page.evaluate(() => {
+    [...document.querySelectorAll("main p")].forEach((paragraph, i) => {
+      if (i >= 18 && i < 36) paragraph.hidden = true;
+      if (i >= 36) paragraph.remove();
+    });
+    const { message, resolve } = requests[0];
+    resolve({
+      ok: true,
+      data: message.segments.map(({ id, parts }) => ({
+        id,
+        parts: parts.map((part) => `译文：${part}`),
+      })),
+    });
+  });
+  await page.clock.runFor(1);
+  assert.equal((await batches(page)).length, 1);
+  await page.clock.runFor(1000);
+  assert.equal((await batches(page)).length, 1);
+});
+
+test("前一批等待时滚动，下一满批使用最新视口而不发送旧窗口", async (t) => {
+  const page = await startPage(
+    t,
+    `<style>body,p{margin:0}p{height:20px}</style>${Array.from({ length: 80 }, (_, i) => `<p>Viewport source ${i}.</p>`).join("")}`,
+    { visibleOnly: true },
+  );
+  await page.evaluate(() => {
+    engine.setMode("replace");
+    window.scrollTo(0, document.body.scrollHeight);
+    const { message, resolve } = requests[0];
+    resolve({
+      ok: true,
+      data: message.segments.map(({ id, parts }) => ({
+        id,
+        parts: parts.map((part) => `译文：${part}`),
+      })),
+    });
+  });
+  await page.clock.runFor(1);
+  const sent = await batches(page);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1][0], "Viewport source 50.");
+  assert(sent[1].every((part) => Number(part.match(/\d+/)[0]) >= 40));
+});
+
+test("下一满批等待新增缓存预检，命中即时显示且不抢占请求", async (t) => {
+  const page = await startPage(
+    t,
+    Array.from({ length: 36 }, (_, i) => `<p>Source ${i}.</p>`).join(""),
+    { cacheEnabled: true },
+  );
+  await page.evaluate(() => {
+    const send = chrome.runtime.sendMessage;
+    globalThis.pendingLookup = null;
+    chrome.runtime.sendMessage = (message) =>
+      message.type === "LOOKUP_CACHE"
+        ? new Promise((resolve) => {
+            globalThis.pendingLookup = { message, resolve };
+          })
+        : send(message);
+    const p = document.createElement("p");
+    p.id = "cached-new";
+    p.textContent = "Cached new source.";
+    document.querySelector("main").prepend(p);
+    const { message, resolve } = requests[0];
+    resolve({
+      ok: true,
+      data: message.segments.map(({ id, parts }) => ({
+        id,
+        parts: parts.map((part) => `译文：${part}`),
+      })),
+    });
+  });
+  await page.clock.runFor(1);
+  assert.equal((await batches(page)).length, 1);
+  await page.evaluate(() => {
+    const { message, resolve } = pendingLookup;
+    resolve({
+      ok: true,
+      data: message.segments.map(({ id, parts }) => ({
+        id,
+        parts: parts.map((part) => `缓存：${part}`),
+      })),
+    });
+  });
+  await page.clock.runFor(1);
+  assert.equal(await page.locator("#cached-new [data-yeyi-owned=translation]").count(), 1);
+  const sent = await batches(page);
+  assert.equal(sent.length, 2);
+  assert(!sent[1].includes("Cached new source."));
+});

@@ -64,9 +64,47 @@ export function translateNamePart(part, entries) {
   );
 }
 
-/** 全部节点均为人名或纯标点时在本地完成；正文仍交给翻译接口。 */
+/**
+ * 对本机保留片段按最长字面人名替换；跨节点匹配的译名写入起始节点，其余节点保留未命中的文字。
+ * @param {string[]} parts 连续原文节点。
+ * @param {Object[]} entries 本次命中的有效人名。
+ * @returns {string[]} 与原节点数量相同的本机译文。
+ */
+export function replaceNameParts(parts, entries) {
+  if (!entries.length) return [...parts];
+  const sorted = [...entries]
+    .filter((entry) => entry.dst)
+    .sort((a, b) => b.src.length - a.src.length);
+  if (!sorted.length) return [...parts];
+  const pattern = new RegExp(
+    sorted.map((entry) => entry.src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"),
+    "giu",
+  );
+  const names = new Map(sorted.map((entry) => [nameKey(entry.src), entry.dst]));
+  const matches = [...parts.join("").matchAll(pattern)];
+  let offset = 0;
+  return parts.map((part) => {
+    const start = offset;
+    const end = (offset += part.length);
+    let cursor = 0;
+    let translated = "";
+    for (const match of matches) {
+      if (match.index >= end) break;
+      const matchEnd = match.index + match[0].length;
+      if (matchEnd <= start) continue;
+      translated += part.slice(cursor, Math.max(start, match.index) - start);
+      if (match.index >= start) translated += names.get(nameKey(match[0]));
+      cursor = Math.min(end, matchEnd) - start;
+    }
+    return translated + part.slice(cursor);
+  });
+}
+
+/** 全部节点均为人名、纯标点或本机保留片段时在本地完成；其余正文交给翻译接口。@param {Object[]} segments 原文片段。@param {Object[]} entries 命中人名。@returns {Object[]} 可完全在本机完成的译文。 */
 export function localNameTranslations(segments, entries) {
   return segments.flatMap((segment) => {
+    if (segment.dictionaryOnly)
+      return [{ id: segment.id, parts: replaceNameParts(segment.parts, entries) }];
     let matched = false;
     const parts = segment.parts.map((part) => {
       const translated = translateNamePart(part, entries);

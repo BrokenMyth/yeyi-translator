@@ -140,7 +140,12 @@ export class TranslationCache {
 /** 以服务、端点、模型、目标语言、节点分片和上下文生成稳定摘要；排版与临时 ID 不影响复用。 */
 export async function cacheKey(signature, segment) {
   const bytes = new TextEncoder().encode(
-    JSON.stringify([signature, segment.parts, segment.context || ""]),
+    JSON.stringify([
+      signature,
+      segment.parts,
+      segment.context || "",
+      ...(segment.dictionaryOnly ? [true] : []),
+    ]),
   );
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
