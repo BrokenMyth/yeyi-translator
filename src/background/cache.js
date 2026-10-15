@@ -187,6 +187,7 @@ export async function translateWithCache({
   const request = {
     provider: settings.providers[settings.provider],
     targetLanguage: settings.targetLanguage,
+    nameDictionary: settings.nameDictionary || [],
     segments,
     signal,
   };

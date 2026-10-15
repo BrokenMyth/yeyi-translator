@@ -7,9 +7,12 @@ import {
 } from "../shared/settings.js";
 import { translateBatch, listModels, TranslationError } from "./api.js";
 import { TranslationCache, translateWithCache, lookupCachedTranslations } from "./cache.js";
+import { NameDictionary } from "./name-dictionary.js";
+import { nameDictionarySignature } from "../shared/name-dictionary.js";
 
 const inflight = new Map();
 const cache = new TranslationCache();
+const nameDictionary = new NameDictionary();
 let settingsQueue = Promise.resolve();
 const ready = initialize();
 
@@ -24,7 +27,12 @@ async function initialize() {
 async function getSettings() {
   await ready;
   const { settings } = await chrome.storage.local.get("settings");
-  return normalizeSettings(settings);
+  const dictionary = await nameDictionary.read();
+  return {
+    ...normalizeSettings(settings),
+    nameDictionary: dictionary.enabled ? dictionary.entries : [],
+    nameDictionarySignature: await nameDictionarySignature(dictionary),
+  };
 }
 
 /** 限制密钥读写只能来自扩展自己的设置或弹窗页面。@param {Object} sender 消息来源。@returns {void} 无返回值。 */
@@ -45,11 +53,20 @@ async function updateSettings(update) {
       const next = normalizeSettings(update(current));
       if (current.cacheEnabled !== next.cacheEnabled) cache.invalidate();
       await chrome.storage.local.set({ settings: next });
-      await broadcastSettings(publicSettings(next));
-      return publicSettings(next);
+      const config = publicSettings(await getSettings());
+      await broadcastSettings(config);
+      return config;
     });
   settingsQueue = task;
   return task;
+}
+
+/** 字典提交成功后再通知网页重译；旧请求不会写入当前轮缓存，不删除原有缓存数据。 */
+async function updateNameDictionary(work) {
+  const result = await work();
+  cache.invalidate();
+  await broadcastSettings(publicSettings(await getSettings()));
+  return result;
 }
 
 /** 通知所有已打开的网页刷新公开偏好。@param {Object} config 脱敏配置。@returns {Promise<void>} 发送结束。 */
@@ -158,7 +175,19 @@ async function handleMessage(message, sender) {
       return publicSettings(await getSettings());
     case "GET_SETTINGS":
       requireTrusted(sender);
-      return getSettings();
+      return normalizeSettings(await getSettings());
+    case "GET_NAME_DICTIONARY":
+      requireTrusted(sender);
+      return nameDictionary.read();
+    case "IMPORT_NAME_DICTIONARY":
+      requireTrusted(sender);
+      return updateNameDictionary(() => nameDictionary.importData(message.entries));
+    case "SAVE_NAME_ENTRY":
+      requireTrusted(sender);
+      return updateNameDictionary(() => nameDictionary.saveEntry(message.entry, message.previous));
+    case "SET_NAME_DICTIONARY_ENABLED":
+      requireTrusted(sender);
+      return updateNameDictionary(() => nameDictionary.setEnabled(message.enabled));
     case "SAVE_SETTINGS":
       requireTrusted(sender);
       return updateSettings(() => message.settings);
@@ -284,9 +313,13 @@ async function handleMessage(message, sender) {
         throw new TranslationError("FORBIDDEN", "无效的翻译请求。");
       const settings = await getSettings();
       if (message.signature !== publicSettings(settings).signature) {
-        throw new TranslationError("CONFIG_CHANGED", "服务或目标语言已更改，请重新点击翻译。", {
-          fatal: true,
-        });
+        throw new TranslationError(
+          "CONFIG_CHANGED",
+          "服务、目标语言或人名字典已更改，请重新点击翻译。",
+          {
+            fatal: true,
+          },
+        );
       }
       if (message.type === "LOOKUP_CACHE")
         return lookupCachedTranslations({ cache, settings, segments: message.segments });

@@ -148,6 +148,9 @@ export function normalizeSettings(input = {}) {
 /** 生成可发送到 content script 的配置，绝不包含 Key。@param {Settings} settings 本机配置。@returns {Object} 脱敏配置。 */
 export function publicSettings(settings) {
   const current = settings.providers[settings.provider];
+  const signature = [settings.provider, current.baseUrl, current.model, settings.targetLanguage];
+  // 无有效字典时保持旧缓存键兼容；摘要不向网页暴露人名及描述。
+  if (settings.nameDictionarySignature) signature.push(settings.nameDictionarySignature);
   return {
     provider: settings.provider,
     model: current.model,
@@ -157,14 +160,10 @@ export function publicSettings(settings) {
     translationShortcut: settings.translationShortcut,
     visibleOnly: settings.visibleOnly,
     cacheEnabled: settings.cacheEnabled,
+    nameDictionarySignature: settings.nameDictionarySignature || "",
     autoTranslateSites: settings.autoTranslateSites,
     configured: Boolean(current.apiKey),
-    signature: JSON.stringify([
-      settings.provider,
-      current.baseUrl,
-      current.model,
-      settings.targetLanguage,
-    ]),
+    signature: JSON.stringify(signature),
     configuredProviders: Object.fromEntries(
       Object.entries(settings.providers).map(([id, config]) => [id, Boolean(config.apiKey)]),
     ),

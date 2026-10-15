@@ -23,6 +23,7 @@
           ><a href="#preferences"><span>☷</span>阅读偏好</a
           ><a href="#sites"><span>◎</span>自动翻译</a>
           <a href="#cache"><span>▤</span>翻译缓存</a>
+          <a href="#names"><span>字</span>人名字典</a>
         </nav>
         <div class="sidebar-note">
           <span class="mini-mark">译</span>
@@ -365,6 +366,88 @@
               <p class="hint">
                 缓存按接口、模型、目标语言和原文区分。导入仅合并新条目，保留本机已有译文。导出不含
                 Key 和设置，但包含译文，请谨慎分享。
+              </p>
+            </div>
+          </section>
+          <section id="names">
+            <div class="section-heading">
+              <div>
+                <span class="section-number">05</span>
+                <h2>人名字典</h2>
+              </div>
+              <span>即时保存 · 兼容 AiNiee</span>
+            </div>
+            <div class="cache-card name-card">
+              <div class="cache-toggle">
+                <div>
+                  <strong>启用人名字典</strong>
+                  <p class="hint">
+                    独立人名直接使用约定译文，正文中的人名交给 AI
+                    按字典翻译。修改后自动更新翻译中的页面。
+                  </p>
+                </div>
+                <label class="switch"
+                  ><input
+                    id="nameDictionaryEnabled"
+                    type="checkbox"
+                    aria-label="启用人名字典" /><span></span
+                ></label>
+              </div>
+              <div class="cache-actions">
+                <button type="button" class="button" id="importNames">导入字典</button>
+                <button type="button" class="button" id="exportNames">导出字典</button>
+                <button type="button" class="button" id="reloadNames">重新载入</button>
+                <input id="nameFile" type="file" accept=".json,application/json" hidden />
+              </div>
+              <p class="hint">
+                支持 AiNiee 的 src / dst / info JSON
+                列表。导入只合并新条目，重复原文保留本机数据；不区分大小写，按普通文字匹配。空译文不参与翻译。
+              </p>
+              <div class="name-editor">
+                <label class="field"
+                  ><span class="field-title">原文人名</span
+                  ><input id="nameSource" maxlength="500" placeholder="填写原文人名"
+                /></label>
+                <label class="field"
+                  ><span class="field-title">约定译名</span
+                  ><input id="nameTranslation" maxlength="500" placeholder="填写译名，可留空待补充"
+                /></label>
+                <label class="field name-info"
+                  ><span class="field-title">描述（可选）</span
+                  ><textarea
+                    id="nameInfo"
+                    rows="2"
+                    maxlength="2000"
+                    placeholder="角色身份、称呼或来源备注"
+                  ></textarea>
+                </label>
+              </div>
+              <div class="cache-actions">
+                <button type="button" class="button primary" id="saveName">添加人名</button>
+                <button type="button" class="button" id="cancelName">取消编辑</button>
+              </div>
+              <p class="hint" id="nameResult" role="status"></p>
+              <label class="field"
+                ><span class="field-title">搜索人名、译文或描述</span
+                ><input id="nameSearch" type="search" placeholder="输入关键词筛选"
+              /></label>
+              <p class="hint" id="nameCount" role="status">正在读取…</p>
+              <div class="name-table-wrap">
+                <table class="name-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">原文</th>
+                      <th scope="col">译文</th>
+                      <th scope="col">描述</th>
+                      <th scope="col">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="nameRows"></tbody>
+                </table>
+              </div>
+              <p class="hint" id="nameEmpty" hidden>暂无匹配人名，可添加或导入 JSON 字典。</p>
+              <p class="hint">
+                字典仅保存在本机，操作即时生效；约定译名适用于所有目标语言。翻译时只向当前接口发送命中的条目，导出文件仅包含人名、译文和描述。
               </p>
             </div>
           </section>

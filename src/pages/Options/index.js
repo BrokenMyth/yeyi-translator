@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS, LANGUAGES, normalizeSettings } from "../../shared/set
 import { shortcutFromEvent } from "../../shared/shortcut.js";
 import { sendMessage, populateLanguages } from "../../shared/messaging.js";
 import { ModelPicker } from "./components/ModelPicker/index.js";
+import { NameDictionaryEditor } from "./components/NameDictionary/index.js";
 import { TranslationCache } from "../../background/cache.js";
 import { validateCacheFile, cacheFileBatches } from "../../shared/cache-file.js";
 
@@ -13,6 +14,7 @@ let cacheBusy = false;
 let cacheStats;
 let cacheRefreshTimer;
 populateLanguages(form.elements.targetLanguage, LANGUAGES);
+new NameDictionaryEditor(document.querySelector("#names"));
 
 /** 从表单读取并校验可保存配置。@returns {Object} 配置对象。 */
 function readForm() {
@@ -94,7 +96,7 @@ async function testConnection(provider) {
 form.addEventListener("submit", save);
 /** 将用户输入及自动匹配的模型变更标记为未保存。@returns {void} 无返回值。 */
 function markDirty(event) {
-  if (event?.target?.type === "file") return;
+  if (event?.target?.type === "file" || event?.target?.closest("#names")) return;
   status.textContent = "有未保存的修改";
   status.className = "";
   markProvider();

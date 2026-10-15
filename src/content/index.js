@@ -117,7 +117,8 @@ async function initialize() {
       if (
         engine.active &&
         (engine.config.visibleOnly !== latestConfig.visibleOnly ||
-          engine.config.cacheEnabled !== latestConfig.cacheEnabled)
+          engine.config.cacheEnabled !== latestConfig.cacheEnabled ||
+          engine.config.nameDictionarySignature !== latestConfig.nameDictionarySignature)
       )
         engine.start(latestConfig, false);
       if (!engine.config) control?.update({ ...engine.getState(), mode: latestConfig.mode });
