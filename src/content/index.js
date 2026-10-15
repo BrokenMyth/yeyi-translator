@@ -58,9 +58,23 @@ async function initialize() {
     await sendMessage({ type: "PAGE_ACTION", action });
   }
 
+  /** 保存悬浮面板的公开偏好；切换语言或服务时取消旧请求后用新配置继续。@param {Object} patch 普通阅读设置。@returns {Promise<Object>} 保存后的公开配置。 */
+  async function changePreferences(patch) {
+    const restart = engine.active && ("provider" in patch || "targetLanguage" in patch);
+    if (restart) await act("stop");
+    latestConfig = await sendMessage({ type: "PAGE_PREFERENCES", patch });
+    control?.setConfig(latestConfig);
+    if ("mode" in patch && engine.config) await act("set-mode", patch.mode);
+    if (restart) await act("start");
+    return latestConfig;
+  }
+
   if (isTop) {
-    control = new FloatingControl(act, () => sendMessage({ type: "OPEN_OPTIONS" }).catch(() => {}));
-    control.setVisible(latestConfig.showFloatingButton);
+    control = new FloatingControl(
+      act,
+      () => sendMessage({ type: "OPEN_OPTIONS" }),
+      changePreferences,
+    );
   }
 
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
@@ -75,7 +89,7 @@ async function initialize() {
     }
     if (message.type === "CONFIG_CHANGED") {
       latestConfig = message.config;
-      control?.setVisible(latestConfig.showFloatingButton);
+      control?.setConfig(latestConfig);
       if (!engine.config) control?.update({ ...engine.getState(), mode: latestConfig.mode });
       respond(true);
       return false;
@@ -91,6 +105,7 @@ async function initialize() {
     }
     if (message.type === "PAGE_COMMAND") {
       latestConfig = message.config;
+      control?.setConfig(latestConfig);
       if (message.action === "start" || message.action === "retry")
         engine.start(latestConfig, true);
       if (message.action === "stop") engine.stop();
@@ -110,7 +125,7 @@ async function initialize() {
     sendMessage({ type: "FRAME_GONE" }).catch(() => {});
   });
   latestConfig = await sendMessage({ type: "GET_PUBLIC_CONFIG" });
-  control?.setVisible(latestConfig.showFloatingButton);
+  control?.setConfig(latestConfig);
   if (
     isTop &&
     latestConfig.configured &&

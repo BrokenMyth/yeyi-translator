@@ -3,6 +3,250 @@ import assert from "node:assert/strict";
 import { translateBatch } from "../../src/background/api.js";
 import * as api from "../../src/background/api.js";
 
+test("作为上下文发送的中文片段不会出现在服务错误提示中", async () => {
+  await assert.rejects(
+    () =>
+      translateBatch({
+        provider: {
+          apiKey: "test-only-secret",
+          baseUrl: "https://proxy.example/v1",
+          model: "custom-chat",
+        },
+        targetLanguage: "zh-CN",
+        segments: [{ id: "context", parts: ["Read"], context: "中文参考一。 中文参考二。" }],
+        signal: new AbortController().signal,
+        fetchImpl: async () =>
+          new Response(JSON.stringify({ error: { message: "Invalid part: 中文参考二" } }), {
+            status: 400,
+          }),
+      }),
+    (error) => error.code === "REQUEST" && !error.message.includes("中文参考二"),
+  );
+});
+
+/** 构造正常完成的模型响应。@param {Object[]} translations 模型返回的段落。@returns {Response} Chat Completions 响应。 */
+function completionResponse(translations) {
+  return new Response(
+    JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ translations }) }, finish_reason: "stop" }],
+    }),
+  );
+}
+
+test("逐节点补译的服务错误不会回显整段中其他节点的原文", async () => {
+  const sibling = "Private sibling original sentence.";
+  let requests = 0;
+  await assert.rejects(
+    () =>
+      translateBatch({
+        provider: {
+          apiKey: "test-only-secret",
+          baseUrl: "https://proxy.example/v1",
+          model: "custom-chat",
+        },
+        targetLanguage: "zh-CN",
+        segments: [{ id: "media", parts: ["Video", sibling] }],
+        signal: new AbortController().signal,
+        fetchImpl: async () => {
+          requests++;
+          if (requests === 1) return completionResponse([{ id: "media", parts: ["合并译文"] }]);
+          return new Response(
+            JSON.stringify({ error: { message: `Bad fragment; context=${sibling}` } }),
+            { status: 400 },
+          );
+        },
+      }),
+    (error) => error.code === "REQUEST" && !error.message.includes(sibling),
+  );
+  assert.equal(requests, 2);
+});
+
+test("逐节点补译取消后不再发送后续节点，单节点坏响应也不会无限重试", async () => {
+  for (const cancel of [true, false]) {
+    const controller = new AbortController();
+    let requests = 0;
+    await assert.rejects(
+      () =>
+        translateBatch({
+          provider: {
+            apiKey: "test-only-secret",
+            baseUrl: "https://proxy.example/v1",
+            model: "custom-chat",
+          },
+          targetLanguage: "zh-CN",
+          segments: [{ id: "media", parts: ["Video", "Audio"] }],
+          signal: controller.signal,
+          fetchImpl: async () => {
+            requests++;
+            if (requests === 1) return completionResponse([{ id: "media", parts: ["合并译文"] }]);
+            if (cancel) {
+              controller.abort();
+              return completionResponse([{ id: "media", parts: ["视频"] }]);
+            }
+            return completionResponse([]);
+          },
+        }),
+      (error) =>
+        cancel
+          ? error.name === "AbortError" || error.code === "CANCELLED"
+          : error.code === "OUTPUT_INVALID",
+    );
+    assert.equal(requests, 2);
+  }
+});
+
+test("补译中途鉴权失败不返回半份结果，也不继续请求剩余节点", async () => {
+  let requests = 0;
+  await assert.rejects(
+    () =>
+      translateBatch({
+        provider: {
+          apiKey: "test-only-secret",
+          baseUrl: "https://proxy.example/v1",
+          model: "custom-chat",
+        },
+        targetLanguage: "zh-CN",
+        segments: [{ id: "media", parts: ["Video", "Audio", "Codec"] }],
+        signal: new AbortController().signal,
+        fetchImpl: async () => {
+          requests++;
+          if (requests === 1) return completionResponse([{ id: "media", parts: ["合并译文"] }]);
+          if (requests === 2) return completionResponse([{ id: "media", parts: ["视频"] }]);
+          return new Response("{}", { status: 401 });
+        },
+      }),
+    (error) => error.code === "AUTH" && error.fatal,
+  );
+  assert.equal(requests, 3);
+});
+
+test("技术名称、已有中文及英文目标正文原样返回时不触发漏译重试", async () => {
+  for (const [targetLanguage, source] of [
+    ["zh-CN", "AVC, HEVC, AV1"],
+    ["zh-CN", "Windows Linux macOS"],
+    ["zh-CN", "开始前准确预览将要下载的内容。"],
+    ["en", "Preview exactly what will be downloaded before starting."],
+  ]) {
+    let requests = 0;
+    const result = await translateBatch({
+      provider: {
+        apiKey: "test-only-secret",
+        baseUrl: "https://proxy.example/v1",
+        model: "custom-chat",
+      },
+      targetLanguage,
+      segments: [{ id: "unchanged", parts: [source] }],
+      signal: new AbortController().signal,
+      fetchImpl: async () => {
+        requests++;
+        return completionResponse([{ id: "unchanged", parts: [source] }]);
+      },
+    });
+    assert.equal(requests, 1);
+    assert.equal(result[0].parts[0], source);
+  }
+});
+
+test("中文翻译原样返回整句英文时重新补译", async () => {
+  const source = "Preview exactly what will be downloaded before starting.";
+  let requests = 0;
+  const result = await translateBatch({
+    provider: {
+      apiKey: "test-only-secret",
+      baseUrl: "https://proxy.example/v1",
+      model: "custom-chat",
+    },
+    targetLanguage: "zh-CN",
+    segments: [{ id: "preview", parts: [source] }],
+    signal: new AbortController().signal,
+    retryDelayMs: 0,
+    fetchImpl: async () => {
+      requests++;
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  translations: [
+                    {
+                      id: "preview",
+                      parts: [requests === 1 ? source : "开始前准确预览将要下载的内容。"],
+                    },
+                  ],
+                }),
+              },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+      );
+    },
+  });
+  assert.equal(requests, 2);
+  assert.equal(result[0].parts[0], "开始前准确预览将要下载的内容。");
+});
+
+test("媒体单元格的 parts 被模型合并后，按文本节点补译并保留全部行与标点", async () => {
+  const source = [
+    "Video",
+    ": 8K, 4K, HDR, Dolby Vision",
+    "Audio",
+    ": Hi-Res Lossless, Dolby Atmos",
+    "Codec",
+    ": AVC, HEVC, AV1",
+    "\n",
+    "Preview exactly what will be downloaded before starting.",
+  ];
+  const dictionary = new Map([
+    [source[0], "视频"],
+    [source[1], ": 8K、4K、HDR、杜比视界"],
+    [source[2], "音频"],
+    [source[3], ": 高解析度无损、杜比全景声"],
+    [source[4], "编码"],
+    [source[5], ": AVC、HEVC、AV1"],
+    [source[7], "开始前准确预览将要下载的内容。"],
+  ]);
+  const requests = [];
+  const result = await translateBatch({
+    provider: {
+      apiKey: "test-only-secret",
+      baseUrl: "https://proxy.example/v1",
+      model: "custom-chat",
+    },
+    targetLanguage: "zh-CN",
+    segments: [{ id: "media", parts: source }],
+    signal: new AbortController().signal,
+    fetchImpl: async (_url, request) => {
+      const payload = JSON.parse(JSON.parse(request.body).messages.at(-1).content);
+      requests.push(payload);
+      const translations = payload.segments.map((segment) => ({
+        id: segment.id,
+        parts:
+          segment.parts.length > 1
+            ? ["视频、音频和编码。"]
+            : segment.parts.map((part) => dictionary.get(part) || part),
+      }));
+      return new Response(
+        JSON.stringify({
+          choices: [
+            { message: { content: JSON.stringify({ translations }) }, finish_reason: "stop" },
+          ],
+        }),
+        { headers: { "Content-Type": "application/json" } },
+      );
+    },
+  });
+  assert.deepEqual(result, [
+    { id: "media", parts: source.map((part) => dictionary.get(part) || part) },
+  ]);
+  assert.equal(requests.length, 8);
+  for (const payload of requests.slice(1)) {
+    assert.equal(payload.segments[0].parts.length, 1);
+    assert.equal(payload.context, source.join(""));
+  }
+});
+
 test("README 表格中的表情、逗号和数字即使被模型清空也不会拖累整批译文", () => {
   const segments = [{ id: "readme", parts: ["🎨 ", "Modern UI", ", ", "2026", "8K"] }];
   const content = JSON.stringify({

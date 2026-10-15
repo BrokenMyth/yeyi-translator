@@ -72,7 +72,7 @@ function render() {
         ? "持续监测新内容 · 可随时暂停"
         : phase === "paused"
           ? "已完成的译文保留在页面中"
-          : "优先翻译当前屏幕";
+          : "从上到下依次翻译";
     elements.retry.hidden = !state.failed;
     elements.retry.disabled = busy;
   }

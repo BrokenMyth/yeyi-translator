@@ -1,5 +1,8 @@
 const SKIP =
-  'script,style,noscript,pre,code,kbd,samp,textarea,input,select,option,svg,math,canvas,video,audio,[contenteditable]:not([contenteditable="false"]),[translate="no"],.notranslate,[data-yeyi-owned]';
+  'script,style,noscript,pre,kbd,samp,textarea,input,select,option,svg,math,canvas,video,audio,[contenteditable]:not([contenteditable="false"]),[translate="no"],.notranslate,[data-yeyi-owned]';
+const PROSE = "article,main,[role=main],[role=article],.markdown-body";
+const PROSE_BLOCK = "p,li,td,th,dt,dd,figcaption,caption,summary,h1,h2,h3,h4,h5,h6";
+const CODE_SYNTAX = "pre,.hljs,.highlight,[class*=language-],[class*=highlight-source-]";
 const BLOCK_DISPLAYS = new Set([
   "block",
   "flow-root",
@@ -67,10 +70,70 @@ export function collectGroups(doc, ownership) {
   if (!doc.body) return groups;
   const styles = new Map();
   const visibility = new Map();
+  const codeLabels = new Map();
+  const codeEligibility = new Map();
+  /** 以原文判断节点类型，避免替换模式写入译文后改变扫描结果。@param {Text} text 文本节点。@returns {string} 当前仍受扩展管理的原文或网站新文本。 */
+  function originalOf(text) {
+    const previous = ownership.get(text);
+    return previous && text.data === previous.lastWritten ? previous.original : text.data;
+  }
   /** 在一次扫描内复用样式查询。@param {Element} element 页面元素。@returns {CSSStyleDeclaration} 计算样式。 */
   function styleOf(element) {
     if (!styles.has(element)) styles.set(element, doc.defaultView.getComputedStyle(element));
     return styles.get(element);
+  }
+  /** 识别正文中的可读标签；路径、标识符、缩写、命令及高亮代码不开放。@param {Element} code code 元素。@returns {{natural: boolean, phrase: boolean}} 是否像自然语言标签、是否包含多个词。 */
+  function codeLabel(code) {
+    if (codeLabels.has(code)) return codeLabels.get(code);
+    if (code.closest(CODE_SYNTAX) || !["inline", "inline-block"].includes(styleOf(code).display)) {
+      const result = { natural: false, phrase: false };
+      codeLabels.set(code, result);
+      return result;
+    }
+    const walker = doc.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+    let text = "";
+    let node;
+    while ((node = walker.nextNode())) text += originalOf(node);
+    // 有些文档把内容类型放进 code；括号中的短类别编号仍属于该可读标签。
+    const label = text.trim().replace(/ \([a-z]{2,4}(?:\/[a-z]{2,4})+\)$/, "");
+    const natural =
+      label.length <= 120 &&
+      /^\p{Lu}[\p{L}\p{M}]*(?:[ -][\p{L}\p{M}]+)*$/u.test(label) &&
+      /\p{Ll}/u.test(label) &&
+      !/\p{Ll}\p{Lu}/u.test(label);
+    const result = { natural, phrase: natural && /\s/.test(label) };
+    codeLabels.set(code, result);
+    return result;
+  }
+  /** 查找逗号连续连接的同段标签词组，避免旁边说明中的 API 单词被误判为分类名。@param {Element} code 待判断的单词标签。@param {Element} block 正文段落。@returns {boolean} 是否属于含自然语言词组的枚举列表。 */
+  function hasLabelContext(code, block) {
+    const codes = [...block.querySelectorAll("code")];
+    const current = codes.indexOf(code);
+    for (const direction of [-1, 1]) {
+      for (
+        let index = current + direction;
+        index >= 0 && index < codes.length;
+        index += direction
+      ) {
+        const candidate = codes[index];
+        const neighbor = codes[index - direction];
+        const between = doc.createRange();
+        between.setStartAfter(direction < 0 ? candidate : neighbor);
+        between.setEndBefore(direction < 0 ? neighbor : candidate);
+        if (!/^\s*[,，、]\s*$/.test(between.toString()) || !codeLabel(candidate).natural) break;
+        if (codeLabel(candidate).phrase) return true;
+      }
+    }
+    return false;
+  }
+  /** 只放行正文中的自然语言词组；孤立单词还需同段标签词组提供列表语境。@param {Element} code code 元素。@returns {boolean} 是否可随正文翻译。 */
+  function translatableCode(code) {
+    if (codeEligibility.has(code)) return codeEligibility.get(code);
+    const block = code.closest(PROSE_BLOCK);
+    const label = block?.closest(PROSE) ? codeLabel(code) : { natural: false, phrase: false };
+    const result = Boolean(label.natural && (label.phrase || hasLabelContext(code, block)));
+    codeEligibility.set(code, result);
+    return result;
   }
   /** 检查祖先的隐藏与排除规则。@param {Element} element 文本父元素。@returns {boolean} 是否适合翻译。 */
   function visible(element) {
@@ -78,6 +141,7 @@ export function collectGroups(doc, ownership) {
     const style = styleOf(element);
     const ownVisible =
       !element.matches(SKIP) &&
+      (element.tagName !== "CODE" || translatableCode(element)) &&
       !element.hidden &&
       element.getAttribute("aria-hidden") !== "true" &&
       style.display !== "none" &&
@@ -94,7 +158,10 @@ export function collectGroups(doc, ownership) {
   function ownerOf(element) {
     let current = element;
     while (current.parentElement && current !== doc.body) {
-      if (LEAF_BLOCKS.has(current.tagName) || BLOCK_DISPLAYS.has(styleOf(current).display))
+      if (
+        current.tagName !== "CODE" &&
+        (LEAF_BLOCKS.has(current.tagName) || BLOCK_DISPLAYS.has(styleOf(current).display))
+      )
         return current;
       current = current.parentElement;
     }
@@ -105,8 +172,7 @@ export function collectGroups(doc, ownership) {
   while ((node = walker.nextNode())) {
     const parent = node.parentElement;
     if (!parent || !visible(parent)) continue;
-    const previous = ownership.get(node);
-    const original = previous && node.data === previous.lastWritten ? previous.original : node.data;
+    const original = originalOf(node);
     if (!original) continue;
     const owner = ownerOf(parent);
     if (!owner.getClientRects().length) continue;
@@ -122,8 +188,48 @@ export function collectGroups(doc, ownership) {
   return groups;
 }
 
-/** 为段落构造有界 API 任务，并记录每片属于哪个文本节点。@param {Object} unit 段落。@returns {Object[]} 每项含 id、parts 和索引。 */
+/** 识别以中文为主的原文，允许品牌、缩写和少量外文词；日文假名与韩文不按中文跳过。@param {string} text 完整原文。@returns {boolean} 是否可直接保留为中文。 */
+export function isChineseText(text) {
+  const han = text.match(/\p{Script=Han}/gu) || [];
+  if (!han.length || /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(text))
+    return false;
+  const prose = text.replace(/(?:https?:\/\/|www\.)\S+/gi, "");
+  const words = prose.match(/[A-Za-z]+(?:[-'][A-Za-z]+)*/g) || [];
+  const lowercase = words.filter((word) => /^[a-z]/.test(word)).length;
+  const latinLength = words.join("").length;
+  const sentence = [...prose.matchAll(/[A-Za-z]+(?:\s+[A-Za-z]+){3,}/g)].some(
+    (match) => (match[0].match(/\b[a-z][a-z]+/g) || []).length >= 2,
+  );
+  return !sentence && !(words.length >= 3 && lowercase >= 2 && latinLength > han.length);
+}
+
+/** 将中文与外文分开，中文及纯标点在本地保留；同一节点的片段顺序用于无损拼接。@param {string} text 节点原文。@param {boolean} preserveAll 是否整段已经为中文。@returns {Array<{text:string,preserve:boolean}>} 按原顺序排列的文本片段。 */
+export function textFragments(text, preserveAll = false) {
+  if (preserveAll) return [{ text, preserve: true }];
+  if (/[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(text))
+    return [{ text, preserve: !/\p{L}/u.test(text) }];
+  return text
+    .split(/(\p{Script=Han}[\p{Script=Han}\p{M}\s，。！？；：、“”‘’（）《》【】…—]*)/u)
+    .filter(Boolean)
+    .map((part) => ({
+      text: part,
+      preserve: /\p{Script=Han}/u.test(part) || !/\p{L}/u.test(part),
+    }));
+}
+
+/** 为需要翻译的外文构造有界 API 任务，中文仅作为可选上下文并保留节点位置。@param {Object} unit 段落。@returns {Object[]} 每项含 id、parts、context 和节点内片段索引。 */
 export function createChunks(unit) {
+  const chinese = isChineseText(unit.nodes.map((record) => record.original).join(""));
+  for (const record of unit.nodes) record.fragments = textFragments(record.original, chinese);
+  const context =
+    splitText(
+      unit.nodes
+        .flatMap((record) => record.fragments)
+        .filter((fragment) => fragment.preserve && /\p{Script=Han}/u.test(fragment.text))
+        .map((fragment) => fragment.text)
+        .join(""),
+      1000,
+    )[0] || "";
   const chunks = [];
   let parts = [];
   let locations = [];
@@ -135,6 +241,7 @@ export function createChunks(unit) {
       id: `${unit.id}:${chunks.length}`,
       parts,
       locations,
+      ...(context ? { context } : {}),
       state: "pending",
       translated: null,
     });
@@ -143,19 +250,24 @@ export function createChunks(unit) {
     length = 0;
   }
   unit.nodes.forEach((record, nodeIndex) => {
-    splitText(record.original).forEach((part) => {
-      if (parts.length >= 40 || length + part.length > 2800) flush();
-      parts.push(part);
-      locations.push(nodeIndex);
-      length += part.length;
+    record.fragments.forEach((fragment, fragmentIndex) => {
+      if (fragment.preserve) return;
+      splitText(fragment.text).forEach((part) => {
+        if (parts.length >= 40 || length + part.length > 2800) flush();
+        parts.push(part);
+        locations.push({ nodeIndex, fragmentIndex });
+        length += part.length;
+      });
     });
   });
   flush();
   return chunks;
 }
 
-/** 衡量段落与当前视口的距离，用于优先翻译正在阅读的内容。@param {Element} element 段落元素。@returns {number} 像素距离，视口内为零。 */
-export function viewportDistance(element) {
-  const rect = element.getBoundingClientRect();
-  return rect.bottom < 0 ? -rect.bottom : rect.top > innerHeight ? rect.top - innerHeight : 0;
+/** 比较同一文档中段落的阅读顺序，滚动与译文换行不会改变优先级。@param {Element} first 前一候选段落。@param {Element} second 后一候选段落。@returns {number} 排序比较值，前方段落优先。 */
+export function compareDocumentOrder(first, second) {
+  const position = first.compareDocumentPosition(second);
+  if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+  if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+  return 0;
 }

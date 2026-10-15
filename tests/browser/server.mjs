@@ -9,6 +9,7 @@ const dictionary = new Map([
   ["Read", "阅读"],
   ["the guide", "指南"],
   ["and explore.", "并探索。"],
+  ["Read the guide and explore.", "阅读指南并探索。"],
   ["This article preserves", "这篇文章保留"],
   ["important details", "重要细节"],
   ["and useful links.", "与有用的链接。"],
@@ -21,6 +22,25 @@ const dictionary = new Map([
   ["Updated paragraph.", "更新后的段落。"],
   ["Frame paragraph.", "框架中的段落。"],
   ["Hello, world!", "你好，世界！"],
+  ["Standard Videos", "普通视频"],
+  ["Bangumi", "番剧"],
+  ["Movies", "电影"],
+  ["Courses", "课程"],
+  ["Interactive Videos", "互动视频"],
+  ["Audio (au/am)", "音频（au/am）"],
+  ["User Space", "用户空间"],
+  ["Favorites", "收藏夹"],
+  ["Weekly Must-Watch", "每周必看"],
+  ["Subscriptions", "订阅"],
+  ["Watch Later", "稍后观看"],
+  ["History", "历史记录"],
+  ["Video", "视频"],
+  ["Audio", "音频"],
+  ["Codec", "编码"],
+  [": 8K, 4K, HDR, Dolby Vision", "：8K、4K、HDR、杜比视界"],
+  [": Hi-Res Lossless, Dolby Atmos", "：高解析度无损、杜比全景声"],
+  [": AVC, HEVC, AV1", "：AVC、HEVC、AV1"],
+  ["Preview exactly what will be downloaded before starting.", "开始前准确预览将要下载的内容。"],
 ]);
 
 /** 启动独立测试服务；模拟数据与生产入口完全隔离。@returns {Promise<Object>} 服务地址、请求记录与行为控制。 */
@@ -149,13 +169,17 @@ export async function startServer() {
         : JSON.stringify({
             translations: segments.map((segment) => ({
               id: segment.id,
-              parts: segment.parts.map((part) =>
-                state.mode === "emptyNonLanguage" && !/\p{L}/u.test(part)
-                  ? ""
-                  : state.mode === "injection"
-                    ? '<img src="invalid" onerror="document.body.dataset.injected=1">'
-                    : dictionary.get(part.trim().replace(/\s+/g, " ")) || `译文：${part.trim()}`,
-              ),
+              parts:
+                state.mode === "mergeParts" && segment.parts.length > 1
+                  ? ["模型合并后的译文"]
+                  : segment.parts.map((part) =>
+                      state.mode === "emptyNonLanguage" && !/\p{L}/u.test(part)
+                        ? ""
+                        : state.mode === "injection"
+                          ? '<img src="invalid" onerror="document.body.dataset.injected=1">'
+                          : dictionary.get(part.trim().replace(/\s+/g, " ")) ||
+                            `译文：${part.trim()}`,
+                    ),
             })),
           });
     const delayMs = state.delayMs;

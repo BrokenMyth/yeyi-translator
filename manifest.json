@@ -1,12 +1,15 @@
 {
   "manifest_version": 3,
   "name": "页译 · 整页 AI 翻译",
-  "version": "1.0.2",
+  "version": "1.0.5",
   "description": "用自己的 DeepSeek / OpenAI Key 翻译网页。支持替换译文、段落双语、动态内容及恢复原文。",
   "minimum_chrome_version": "120",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["http://*/*", "https://*/*"],
-  "background": { "service_worker": "background/index.js", "type": "module" },
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "页译 · 翻译此页",
     "default_popup": "pages/Popup/index.html",

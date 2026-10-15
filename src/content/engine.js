@@ -1,4 +1,4 @@
-import { collectGroups, createChunks, viewportDistance } from "./model.js";
+import { collectGroups, compareDocumentOrder, createChunks } from "./model.js";
 import { sendMessage } from "../shared/messaging.js";
 
 /**
@@ -30,7 +30,7 @@ export class TranslationEngine {
     this.runId = crypto.randomUUID();
     /** @type {number} 此页面中单调递增的段落标识序号。 */
     this.sequence = 0;
-    /** @type {number} 当前运行尚未结束的批次数，上限为二。 */
+    /** @type {number} 当前运行尚未结束的批次数，上限为一，补译共用同一名额。 */
     this.workers = 0;
     /** @type {string} 可安全展示的最近错误。 */
     this.error = "";
@@ -150,11 +150,15 @@ export class TranslationEngine {
       this.scheduleScan();
       return;
     }
-    const translated = unit.nodes.map(() => "");
+    const fragments = unit.nodes.map((record) =>
+      record.fragments.map((fragment) => (fragment.preserve ? fragment.text : "")),
+    );
     for (const chunk of unit.chunks)
       chunk.translated.forEach((part, index) => {
-        translated[chunk.locations[index]] += part;
+        const { nodeIndex, fragmentIndex } = chunk.locations[index];
+        fragments[nodeIndex][fragmentIndex] += part;
       });
+    const translated = fragments.map((parts) => parts.join(""));
     this.restoreUnit(unit);
     if (this.config.mode === "replace") {
       unit.nodes.forEach((record, index) => {
@@ -249,6 +253,7 @@ export class TranslationEngine {
           });
           this.renderUnit(unit);
         }
+        if (!unit.chunks.length) this.renderUnit(unit);
         this.units.set(element, unit);
       }
     });
@@ -331,20 +336,21 @@ export class TranslationEngine {
     this.publish();
   }
 
-  /** 以当前视口优先的顺序选择一个有界批次。@returns {Object[]} 段落与片段任务。 */
+  /** 按文档阅读顺序选择有界批次，新插入的段落也按当前位置排序。@returns {Object[]} 段落与片段任务。 */
   nextBatch() {
     const candidates = [...this.units.values()]
       .filter(
         (unit) =>
           unit.element.isConnected && unit.chunks.some((chunk) => chunk.state === "pending"),
       )
-      .sort((a, b) => viewportDistance(a.element) - viewportDistance(b.element));
+      .sort((a, b) => compareDocumentOrder(a.element, b.element));
     const tasks = [];
     let length = 0;
     for (const unit of candidates) {
       for (const chunk of unit.chunks) {
         if (chunk.state !== "pending") continue;
-        const size = chunk.parts.reduce((sum, part) => sum + part.length, 0);
+        const size =
+          chunk.parts.reduce((sum, part) => sum + part.length, 0) + (chunk.context?.length || 0);
         if (tasks.length && (length + size > 4800 || tasks.length >= 18)) return tasks;
         chunk.state = "inflight";
         tasks.push({ unit, chunk });
@@ -354,15 +360,16 @@ export class TranslationEngine {
     return tasks;
   }
 
-  /** 运行最多两个批次，完成后继续调度整页剩余内容。@returns {void} 无返回值。 */
+  /** 当前批次及其补译结束后再处理下一批，使译文按阅读顺序逐批显示。@returns {void} 无返回值。 */
   pump() {
     if (!this.active) return;
-    while (this.workers < 2) {
+    if (!this.workers) {
       const tasks = this.nextBatch();
-      if (!tasks.length) break;
-      this.workers++;
-      this.phase = "translating";
-      void this.runBatch(tasks, this.runId);
+      if (tasks.length) {
+        this.workers++;
+        this.phase = "translating";
+        void this.runBatch(tasks, this.runId);
+      }
     }
     if (!this.workers) this.phase = "watching";
     this.publish();
@@ -376,7 +383,11 @@ export class TranslationEngine {
         type: "TRANSLATE_BATCH",
         runId,
         signature: this.config.signature,
-        segments: tasks.map(({ chunk }) => ({ id: chunk.id, parts: chunk.parts })),
+        segments: tasks.map(({ chunk }) => ({
+          id: chunk.id,
+          parts: chunk.parts,
+          ...(chunk.context ? { context: chunk.context } : {}),
+        })),
       });
       if (!this.active || runId !== this.runId) return;
       const results = new Map(translated.map((item) => [item.id, item.parts]));
@@ -395,7 +406,10 @@ export class TranslationEngine {
       if (!this.active || runId !== this.runId) return;
       // 格式错误只说明当前响应不可用；缩小批次后，其他段落仍可能正常返回。
       // 每次任务数减半，最小到单片段即停止，避免坏响应触发无限重试。
-      if (["OUTPUT_INVALID", "OUTPUT_INCOMPLETE"].includes(error.code) && tasks.length > 1) {
+      if (
+        ["OUTPUT_INVALID", "OUTPUT_INCOMPLETE", "OUTPUT_UNTRANSLATED"].includes(error.code) &&
+        tasks.length > 1
+      ) {
         const middle = Math.ceil(tasks.length / 2);
         await this.runBatch(tasks.slice(0, middle), runId, true);
         await this.runBatch(tasks.slice(middle), runId, true);

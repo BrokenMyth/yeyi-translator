@@ -3,6 +3,7 @@ import {
   normalizeSettings,
   publicSettings,
   isTranslatableUrl,
+  LANGUAGES,
 } from "../shared/settings.js";
 import { translateBatch, listModels, TranslationError } from "./api.js";
 
@@ -108,6 +109,42 @@ async function pageAction(message, sender) {
   return chrome.tabs.sendMessage(tabId, { type: "GET_STATE" }, { frameId: 0 });
 }
 
+/** 仅允许主文档悬浮控件修改公开偏好；自动翻译网站取自浏览器验证的当前标签页。@param {Object} message 含普通设置 patch 的消息。@param {Object} sender Chrome 验证的来源。@returns {Promise<Object>} 保存后的脱敏配置。 */
+async function pagePreferences(message, sender) {
+  if (!sender.tab || sender.frameId !== 0)
+    throw new TranslationError("FORBIDDEN", "无效的网页设置操作。");
+  const patch = message.patch;
+  if (
+    !patch ||
+    typeof patch !== "object" ||
+    Array.isArray(patch) ||
+    Object.keys(patch).some(
+      (key) => !["provider", "targetLanguage", "mode", "autoSite"].includes(key),
+    ) ||
+    ("provider" in patch && !["deepseek", "openai"].includes(patch.provider)) ||
+    ("targetLanguage" in patch && !LANGUAGES.some(([id]) => id === patch.targetLanguage)) ||
+    ("mode" in patch && !["bilingual", "replace"].includes(patch.mode)) ||
+    ("autoSite" in patch && typeof patch.autoSite !== "boolean")
+  )
+    throw new TranslationError("BAD_INPUT", "无效的翻译设置。");
+  const tab = await chrome.tabs.get(sender.tab.id);
+  if (!isTranslatableUrl(tab.url))
+    throw new TranslationError("UNSUPPORTED", "此页面无法保存翻译设置。");
+  const hostname = new URL(tab.url).hostname.toLowerCase();
+  return updateSettings((current) => {
+    const next = { ...current };
+    for (const key of ["provider", "targetLanguage", "mode"])
+      if (key in patch) next[key] = patch[key];
+    if ("autoSite" in patch) {
+      const sites = new Set(current.autoTranslateSites);
+      if (patch.autoSite) sites.add(hostname);
+      else sites.delete(hostname);
+      next.autoTranslateSites = [...sites];
+    }
+    return next;
+  });
+}
+
 /** 路由扩展内部消息；没有网页 window 消息或外部消息入口。@param {Object} message 消息。@param {Object} sender Chrome 验证的来源。@returns {Promise<any>} 对应数据。 */
 async function handleMessage(message, sender) {
   await ready;
@@ -150,6 +187,8 @@ async function handleMessage(message, sender) {
       }
     case "PAGE_ACTION":
       return pageAction(message, sender);
+    case "PAGE_PREFERENCES":
+      return pagePreferences(message, sender);
     case "FRAME_READY":
       if (!sender.tab || sender.frameId === 0) return null;
       return chrome.tabs

@@ -24,6 +24,16 @@ async function scenario(name, work) {
   console.log(`✓ ${name}`);
 }
 
+/** 打开常用设置并等待显示模式保存、应用完成。@param {string} name 模式按钮名称。@returns {Promise<void>} 模式已生效。 */
+async function chooseMode(name) {
+  const settings = page.getByRole("button", { name: "打开翻译设置" });
+  if ((await settings.getAttribute("aria-expanded")) === "false") await settings.click();
+  const button = page.getByRole("button", { name, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute("aria-pressed", "true");
+  await expect(button).toBeEnabled();
+}
+
 /** 打开真实扩展 popup 为后台标签页，保持待翻译网页为当前标签。@returns {Promise<import('@playwright/test').Page>} 弹窗页面。 */
 async function openPopup() {
   await page.bringToFront();
@@ -136,24 +146,185 @@ try {
   });
 
   page = await context.newPage();
+  await scenario("两个小圆形按钮可直接翻译与恢复，圆环展示进度，设置不遮挡默认阅读", async () => {
+    await page.goto(`${fixture.url}/long`);
+    const host = page.locator('[data-yeyi-owned="control"]');
+    await expect(host.locator(".dock button")).toHaveCount(2);
+    for (const button of await host.locator(".dock button").all()) {
+      const box = await button.boundingBox();
+      assert.equal(box.width, box.height);
+      assert(box.width <= 44);
+      assert.equal(await button.evaluate((node) => getComputedStyle(node).borderRadius), "50%");
+    }
+    await expect(host.locator(".panel")).toBeHidden();
+    fixture.state.delayMs = 200;
+    await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+    await expect(page.getByRole("button", { name: "恢复原文", exact: true })).toBeVisible();
+    await expect
+      .poll(async () => Number(await host.locator(".progress").getAttribute("aria-valuenow")))
+      .toBeGreaterThan(0);
+    const percent = Number(await host.locator(".progress").getAttribute("aria-valuenow"));
+    assert(percent < 100);
+    assert.equal(
+      Number(await host.locator(".arc").evaluate((node) => node.style.strokeDashoffset)),
+      100 - percent,
+    );
+    await page.screenshot({
+      path: resolve(output, "floating-progress.png"),
+      clip: { x: 1150, y: 755, width: 130, height: 145 },
+    });
+    await expect(host.locator(".panel")).toBeHidden();
+    await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+    await expect(page.getByRole("button", { name: "翻译此页", exact: true })).toBeVisible();
+    await expect(host.locator(".progress")).toHaveAttribute("aria-valuenow", "0");
+    await expect(page.locator("[data-yeyi-owned=translation]")).toHaveCount(0);
+    fixture.state.delayMs = 0;
+  });
+  await scenario("圆形设置按钮可保存常用偏好，设置权限不允许写入密钥", async () => {
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
+    const host = page.locator('[data-yeyi-owned="control"]');
+    await page.getByRole("combobox", { name: "目标语言" }).selectOption("ja");
+    await expect(page.getByRole("combobox", { name: "目标语言" })).toBeEnabled();
+    await page.getByRole("combobox", { name: "翻译服务" }).selectOption("openai");
+    await expect(page.getByRole("combobox", { name: "翻译服务" })).toBeEnabled();
+    await page.getByRole("checkbox", { name: "本站自动翻译" }).check();
+    await expect(page.getByRole("checkbox", { name: "本站自动翻译" })).toBeEnabled();
+    await options.reload();
+    await expect(options.locator('[name="provider"][value="openai"]')).toBeChecked();
+    await expect(options.locator('[name="targetLanguage"]')).toHaveValue("ja");
+    const forbidden = await worker.evaluate(async (url) => {
+      const [tab] = await chrome.tabs.query({ url: `${url}/*` });
+      return chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () =>
+          chrome.runtime.sendMessage({
+            type: "PAGE_PREFERENCES",
+            patch: { providers: { deepseek: { apiKey: "forbidden" } } },
+          }),
+      });
+    }, fixture.url);
+    assert.equal(forbidden[0].result.error.code, "BAD_INPUT");
+    await page.getByRole("combobox", { name: "目标语言" }).selectOption("zh-CN");
+    await expect(page.getByRole("combobox", { name: "目标语言" })).toBeEnabled();
+    await page.getByRole("combobox", { name: "翻译服务" }).selectOption("deepseek");
+    await expect(page.getByRole("combobox", { name: "翻译服务" })).toBeEnabled();
+    await page.getByRole("checkbox", { name: "本站自动翻译" }).uncheck();
+    await expect(page.getByRole("checkbox", { name: "本站自动翻译" })).toBeEnabled();
+    await page.screenshot({
+      path: resolve(output, "floating-settings.png"),
+      clip: { x: 950, y: 320, width: 330, height: 580 },
+    });
+    await page.keyboard.press("Escape");
+    await expect(host.locator(".panel")).toBeHidden();
+  });
+  await scenario("纯中文页面不请求 API，混排只翻译外文并允许中文作为上下文", async () => {
+    await page.goto(`${fixture.url}/article`);
+    await page.evaluate(() => {
+      document.body.innerHTML =
+        '<main><h1>中文标题</h1><p id="chinese">这是中文说明，支持 <strong>Windows</strong> 和 Linux 系统。</p></main>';
+    });
+    const original = await page.locator("main").innerHTML();
+    const before = fixture.requests.length;
+    await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+    await expect(page.locator('[data-yeyi-owned="control"] .progress')).toHaveAttribute(
+      "aria-valuenow",
+      "100",
+    );
+    assert.equal(fixture.requests.length, before);
+    assert.equal(await page.locator("main").innerHTML(), original);
+    await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+    await expect(page.getByRole("button", { name: "翻译此页", exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      document.querySelector("main").innerHTML =
+        '<p id="mixed">这是中文参考。<strong>Read the guide and explore.</strong>中文结尾。</p>';
+    });
+    await chooseMode("替换原文");
+    await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+    await expect(page.locator("#mixed strong")).toHaveText("阅读指南并探索。");
+    await expect(page.locator("#mixed")).toHaveText("这是中文参考。阅读指南并探索。中文结尾。");
+    const payload = JSON.parse(fixture.requests.at(-1).body.messages.at(-1).content);
+    assert(
+      payload.segments.every((segment) =>
+        segment.parts.every((part) => !/\p{Script=Han}/u.test(part)),
+      ),
+    );
+    assert(payload.segments.some((segment) => segment.context?.includes("这是中文参考")));
+    await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+    await expect(page.locator("#mixed strong")).toHaveText("Read the guide and explore.");
+    await chooseMode("原文 / 译文");
+  });
   await scenario("GitHub README 的整张功能表在模型省略表情与标点时仍完整翻译并可恢复", async () => {
     fixture.state.mode = "emptyNonLanguage";
     await page.goto(`${fixture.url}/readme`);
     const original = await page.locator("article").textContent();
     const codes = await page.locator("code").allTextContents();
+    const naturalCodeTranslations = {
+      "Standard Videos": "普通视频",
+      Bangumi: "番剧",
+      Movies: "电影",
+      Courses: "课程",
+      "Interactive Videos": "互动视频",
+      "Audio (au/am)": "音频（au/am）",
+      "User Space": "用户空间",
+      Favorites: "收藏夹",
+      "Weekly Must-Watch": "每周必看",
+      Subscriptions: "订阅",
+      "Watch Later": "稍后观看",
+      History: "历史记录",
+    };
     const cells = await page.locator("td, th").count();
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect(
       page.locator("td [data-yeyi-owned=translation], th [data-yeyi-owned=translation]"),
     ).toHaveCount(cells);
-    await page.getByRole("button", { name: "替换原文", exact: true }).click();
+    await chooseMode("替换原文");
     for (const cell of await page.locator("td, th").all())
-      await expect(cell).toContainText("译文：");
-    assert.deepEqual(await page.locator("code").allTextContents(), codes);
+      await expect(cell).toContainText(/\p{Script=Han}/u);
+    assert.deepEqual(
+      await page.locator("code").allTextContents(),
+      codes.map((code) => naturalCodeTranslations[code] || code),
+    );
     await page.screenshot({ path: resolve(output, "readme-replace.png"), fullPage: true });
     await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("点击翻译，开始阅读。");
     assert.equal(await page.locator("article").textContent(), original);
+    await chooseMode("原文 / 译文");
+    fixture.state.mode = "success";
+  });
+  await scenario("模型持续合并同格多个文本片段时，逐节点补译媒体行及灰底功能名称", async () => {
+    fixture.state.mode = "mergeParts";
+    await page.reload();
+    const original = await page.locator("article").textContent();
+    const lineBreaks = await page.locator("#readmeMedia br").count();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
+    await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+    await expect(
+      page.locator("td [data-yeyi-owned=translation], th [data-yeyi-owned=translation]"),
+    ).toHaveCount(36, { timeout: 20_000 });
+    await chooseMode("替换原文");
+    await expect(page.locator("#readmeMedia")).toContainText("开始前准确预览将要下载的内容。");
+    await expect(page.locator("#readmeMedia strong")).toHaveText(["视频", "音频", "编码"]);
+    await expect(page.locator("#readmeParsing code")).toHaveText([
+      "普通视频",
+      "番剧",
+      "电影",
+      "课程",
+      "互动视频",
+      "音频（au/am）",
+      "用户空间",
+      "收藏夹",
+      "每周必看",
+      "订阅",
+      "稍后观看",
+      "历史记录",
+    ]);
+    assert.equal(await page.locator("#readmeMedia br").count(), lineBreaks);
+    await expect(page.getByRole("status")).not.toContainText("不完整");
+    await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("点击翻译，开始阅读。");
+    assert.equal(await page.locator("article").textContent(), original);
+    await chooseMode("原文 / 译文");
     fixture.state.mode = "success";
   });
   await scenario("README 某批译文缺项时自动缩小批次补译，不留下整片英文", async () => {
@@ -161,7 +332,7 @@ try {
     fixture.state.malformedAt = fixture.requests.length + 1;
     const before = fixture.requests.length;
     const cells = await page.locator("td, th").count();
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect(
       page.locator("td [data-yeyi-owned=translation], th [data-yeyi-owned=translation]"),
@@ -176,7 +347,7 @@ try {
     const before = fixture.requests.length;
     fixture.state.malformedAt = before + 1;
     fixture.state.delayMs = 200;
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect.poll(() => fixture.requests.length).toBeGreaterThan(before + 2);
     await page.getByRole("button", { name: "恢复原文", exact: true }).click();
@@ -190,7 +361,7 @@ try {
     fixture.state.delayMs = 0;
   });
   await page.goto(`${fixture.url}/article`);
-  await page.getByRole("button", { name: "打开页译控制面板" }).click();
+  await page.getByRole("button", { name: "打开翻译设置" }).click();
   await scenario("换行双语翻译整页，包括首屏之外的文字，并跳过输入、代码及隐藏内容", async () => {
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect(page.locator("#intro [data-yeyi-owned=translation]")).toHaveText(
@@ -213,12 +384,12 @@ try {
 
   await scenario("切换为替换模式保留链接与按钮行为，切换与恢复均不重复调用 API", async () => {
     const before = fixture.requests.length;
-    await page.getByRole("button", { name: "替换原文", exact: true }).click();
+    await chooseMode("替换原文");
     await expect(page.locator("#intro")).toHaveText("阅读 指南 并探索。");
     assert.equal(await page.locator("#guide").getAttribute("href"), "https://example.org/guide");
     await page.locator("#menu").click();
     await expect(page.locator("#clicks")).toHaveText("1");
-    await page.getByRole("button", { name: "原文 / 译文", exact: true }).click();
+    await chooseMode("原文 / 译文");
     await expect(page.locator("#intro [data-yeyi-owned=translation]")).toHaveText(
       "阅读 指南 并探索。",
     );
@@ -248,7 +419,7 @@ try {
     await expect(page.locator("#newParagraph [data-yeyi-owned=translation]")).toHaveText(
       "动态段落。",
     );
-    await page.getByRole("button", { name: "替换原文", exact: true }).click();
+    await chooseMode("替换原文");
     await expect(page.locator("#newParagraph")).toHaveText("动态段落。");
     await page.evaluate(() => {
       document.querySelector("#newParagraph").firstChild.data = "Updated paragraph.";
@@ -256,6 +427,7 @@ try {
     await expect(page.locator("#newParagraph")).toHaveText("更新后的段落。");
     await page.getByRole("button", { name: "恢复原文", exact: true }).click();
     await expect(page.locator("#newParagraph")).toHaveText("Updated paragraph.");
+    await chooseMode("原文 / 译文");
   });
 
   popup = await openPopup();
@@ -304,7 +476,7 @@ try {
   await scenario("刷新网页清空译文缓存，本机存储中只有设置且内容脚本无法读取密钥", async () => {
     const before = fixture.requests.length;
     await page.reload();
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect(page.locator("#intro [data-yeyi-owned=translation]")).toHaveText(
       "阅读 指南 并探索。",
@@ -342,12 +514,12 @@ try {
     await popup.locator("#autoSite").uncheck();
     await expect(popup.locator("#autoSite")).not.toBeChecked();
     await page.reload();
-    await expect(page.getByRole("button", { name: "打开页译控制面板" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "打开翻译设置" })).toBeVisible();
     assert.equal(await page.locator("[data-yeyi-owned=translation]").count(), 0);
   });
 
   await scenario("翻译中的页面新加入的 iframe 可以翻译，并随整页一起恢复", async () => {
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect(page.locator("#intro [data-yeyi-owned=translation]")).toBeVisible();
     await page.evaluate((url) => {
@@ -370,7 +542,7 @@ try {
     await page.reload();
     fixture.state.delayMs = 1200;
     const before = fixture.requests.length;
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect.poll(() => fixture.requests.length).toBeGreaterThan(before);
     await page.getByRole("button", { name: "恢复原文", exact: true }).click();
@@ -390,7 +562,7 @@ try {
         await page.reload();
         fixture.state.mode = mode;
         const before = fixture.requests.length;
-        await page.getByRole("button", { name: "打开页译控制面板" }).click();
+        await page.getByRole("button", { name: "打开翻译设置" }).click();
         await page.getByRole("button", { name: "翻译此页", exact: true }).click();
         await expect(page.locator("[data-yeyi-owned=control]").locator(".status")).toContainText(
           text,
@@ -407,7 +579,7 @@ try {
     await page.reload();
     fixture.state.transientRemaining = 2;
     const before = fixture.requests.length;
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     await expect(page.locator("#intro [data-yeyi-owned=translation]")).toHaveText(
       "阅读 指南 并探索。",
@@ -421,7 +593,7 @@ try {
     await popup.close();
     await page.goto(`${fixture.url}/long`);
     fixture.state.malformedText = "Long paragraph 20:";
-    await page.getByRole("button", { name: "打开页译控制面板" }).click();
+    await page.getByRole("button", { name: "打开翻译设置" }).click();
     await page.getByRole("button", { name: "翻译此页", exact: true }).click();
     popup = await openPopup();
     await expect(popup.locator("#retry")).toBeVisible();
