@@ -146,6 +146,31 @@ export async function cacheKey(signature, segment) {
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
 }
 
+/** 查询并核对分片结构，供排队前预检和请求前的并发兜底复用。 */
+async function matchingCache(cache, settings, segments) {
+  const signature = publicSettings(settings).signature;
+  const keys = await Promise.all(segments.map((segment) => cacheKey(signature, segment)));
+  const hits = await cache.getMany(keys);
+  segments.forEach((segment, index) => {
+    // 导入文件的摘要无法反推原文结构；复用前核对数量，避免错误文件破坏页面排版。
+    if (hits.get(keys[index])?.length !== segment.parts.length) hits.delete(keys[index]);
+  });
+  return { keys, hits };
+}
+
+/**
+ * 只读查询当前文本的缓存命中，不调用 API、不新增队列，也不暴露整库或配置。
+ * 保留本轮临时 ID，内容脚本可立即渲染命中项，只让缺项进入待翻译队列。
+ */
+export async function lookupCachedTranslations({ cache, settings, segments }) {
+  validateSegments(segments);
+  if (!settings.cacheEnabled) return [];
+  const { keys, hits } = await matchingCache(cache, settings, segments);
+  return segments.flatMap((segment, index) =>
+    hits.has(keys[index]) ? [{ id: segment.id, parts: hits.get(keys[index]) }] : [],
+  );
+}
+
 /**
  * 验证请求后只把未命中的片段发往 API，再按本次 ID 还原完整响应。
  * 同批相同原文合并为一次请求；仅持久化 API 已校验成功的结果。
@@ -167,13 +192,9 @@ export async function translateWithCache({
   };
   if (!settings.cacheEnabled) return translate(request);
   const revision = cache.revision;
-  const signature = publicSettings(settings).signature;
-  const keys = await Promise.all(segments.map((segment) => cacheKey(signature, segment)));
-  const hits = await cache.getMany(keys);
+  const { keys, hits } = await matchingCache(cache, settings, segments);
   const missing = new Map();
   segments.forEach((segment, index) => {
-    // 导入文件的摘要无法反推原文结构；复用前再核对分片数量，防止错误文件破坏页面排版。
-    if (hits.get(keys[index])?.length !== segment.parts.length) hits.delete(keys[index]);
     if (!hits.has(keys[index])) missing.set(keys[index], segment);
   });
   if (signal.aborted) throw new TranslationError("CANCELLED", "翻译已停止。");

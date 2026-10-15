@@ -27,7 +27,7 @@
         <div class="sidebar-note">
           <span class="mini-mark">译</span>
           <p>语言之间，<br />少一点距离。</p>
-          <small>Chrome & Edge<br />Manifest V3 · v1.1.0</small>
+          <small>Chrome & Edge<br />Manifest V3 · v1.2.0</small>
         </div>
       </aside>
       <main>
@@ -224,7 +224,9 @@
             <div class="preference-toggle">
               <div>
                 <strong>只翻译可视页面</strong>
-                <p class="hint">默认关闭。开启后仅翻译视口内可见段落，滚动出现新内容时立即处理</p>
+                <p class="hint">
+                  默认关闭。优先翻译可视内容，并向上、向下各预翻译 10 句；滚动后自动更新
+                </p>
               </div>
               <label class="switch"
                 ><input
@@ -281,7 +283,9 @@
               <div class="cache-toggle">
                 <div>
                   <strong>启用持久翻译缓存</strong>
-                  <p class="hint">默认关闭。开启后复用已缓存的译文，刷新页面或重启浏览器后仍有效</p>
+                  <p class="hint">
+                    默认关闭。命中缓存立即显示，仅未命中内容排队；刷新页面或重启浏览器后仍有效
+                  </p>
                 </div>
                 <label class="switch"
                   ><input

@@ -6,7 +6,7 @@ import {
   LANGUAGES,
 } from "../shared/settings.js";
 import { translateBatch, listModels, TranslationError } from "./api.js";
-import { TranslationCache, translateWithCache } from "./cache.js";
+import { TranslationCache, translateWithCache, lookupCachedTranslations } from "./cache.js";
 
 const inflight = new Map();
 const cache = new TranslationCache();
@@ -122,13 +122,12 @@ async function pagePreferences(message, sender) {
     typeof patch !== "object" ||
     Array.isArray(patch) ||
     Object.keys(patch).some(
-      (key) => !["provider", "targetLanguage", "mode", "autoSite", "visibleOnly"].includes(key),
+      (key) => !["provider", "targetLanguage", "mode", "autoSite"].includes(key),
     ) ||
     ("provider" in patch && !["deepseek", "openai"].includes(patch.provider)) ||
     ("targetLanguage" in patch && !LANGUAGES.some(([id]) => id === patch.targetLanguage)) ||
     ("mode" in patch && !["bilingual", "replace"].includes(patch.mode)) ||
-    ("autoSite" in patch && typeof patch.autoSite !== "boolean") ||
-    ("visibleOnly" in patch && typeof patch.visibleOnly !== "boolean")
+    ("autoSite" in patch && typeof patch.autoSite !== "boolean")
   )
     throw new TranslationError("BAD_INPUT", "无效的翻译设置。");
   const tab = await chrome.tabs.get(sender.tab.id);
@@ -137,7 +136,7 @@ async function pagePreferences(message, sender) {
   const hostname = new URL(tab.url).hostname.toLowerCase();
   return updateSettings((current) => {
     const next = { ...current };
-    for (const key of ["provider", "targetLanguage", "mode", "visibleOnly"])
+    for (const key of ["provider", "targetLanguage", "mode"])
       if (key in patch) next[key] = patch[key];
     if ("autoSite" in patch) {
       const sites = new Set(current.autoTranslateSites);
@@ -274,6 +273,7 @@ async function handleMessage(message, sender) {
         });
       }
       return null;
+    case "LOOKUP_CACHE":
     case "TRANSLATE_BATCH": {
       if (!sender.tab || typeof message.runId !== "string" || message.runId.length > 100)
         throw new TranslationError("FORBIDDEN", "无效的翻译请求。");
@@ -283,6 +283,8 @@ async function handleMessage(message, sender) {
           fatal: true,
         });
       }
+      if (message.type === "LOOKUP_CACHE")
+        return lookupCachedTranslations({ cache, settings, segments: message.segments });
       const requestId = `${sender.tab.id}:${sender.frameId}:${crypto.randomUUID()}`;
       const controller = new AbortController();
       inflight.set(requestId, {

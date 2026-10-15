@@ -124,11 +124,11 @@ test("设置新增开关默认关闭，容量可编辑，保存后保持并显�
   await options.screenshot({ path: resolve(output, "options-cache.png"), fullPage: true });
 });
 
-test("真实扩展兼容 Discord 用户名并监听聊天容器滚动，悬浮开关即时生效", async (t) => {
+test("Discord 内部滚动预翻译，开关只保留在完整设置且保存后即时生效", async (t) => {
   await settings({ visibleOnly: true });
   const page = await article(
     t,
-    '<div id="app-mount"><ol data-list-id="chat-messages" style="height:160px;overflow:auto"><li id="chat-messages-1"><h3 id="message-username-1"><span class="username_newHash">Example Author</span></h3><p id="first">Top chat body.</p></li><li style="height:800px"></li><li><span class="username_otherHash">Another Author</span><p id="last">Bottom chat body.</p></li></ol></div>',
+    `<div id="app-mount"><ol data-list-id="chat-messages" style="height:160px;overflow:auto"><li id="chat-messages-1"><h3 id="message-username-1"><span class="username_newHash">Example Author</span></h3><p id="first">Top chat body.</p></li><li style="height:800px"></li>${Array.from({ length: 12 }, (_, index) => `<li><p>Context message ${index}.</p></li>`).join("")}<li><span class="username_otherHash">Another Author</span><p id="last">Bottom chat body.</p></li></ol></div>`,
   );
   const before = fixture.requests.length;
   await translate(page, "#first");
@@ -138,7 +138,8 @@ test("真实扩展兼容 Discord 用户名并监听聊天容器滚动，悬浮�
       .flatMap((request) =>
         JSON.parse(request.body.messages.at(-1).content).segments.flatMap((item) => item.parts),
       );
-  assert.deepEqual(texts(), ["Top chat body."]);
+  assert(texts().includes("Top chat body."));
+  assert(!texts().includes("Bottom chat body."));
   await page.evaluate(() => {
     const scroller = document.querySelector("ol");
     scroller.scrollTop = scroller.scrollHeight;
@@ -146,10 +147,10 @@ test("真实扩展兼容 Discord 用户名并监听聊天容器滚动，悬浮�
   await expect(page.locator("#last [data-yeyi-owned=translation]")).toHaveCount(1);
   assert(!texts().some((part) => part.includes("Author")));
   await page.getByRole("button", { name: "打开翻译设置" }).click();
-  const toggle = page.getByRole("checkbox", { name: "只翻译可视页面" });
-  await expect(toggle).toBeChecked();
-  await toggle.uncheck();
-  await expect(toggle).toBeEnabled();
+  await expect(page.getByRole("checkbox", { name: "只翻译可视页面" })).toHaveCount(0);
+  await expect(options.locator('[name="visibleOnly"]')).toBeChecked();
+  await settings({ visibleOnly: false });
+  await expect(page.locator("#last [data-yeyi-owned=translation]")).toHaveCount(1);
   const config = await message({ type: "GET_SETTINGS" });
   assert.equal(config.data.visibleOnly, false);
 });
@@ -325,4 +326,31 @@ test("超过 64 MiB 的缓存文件可完整导入和导出，不受单条扩展
   const download = await downloadPromise;
   const exported = JSON.parse(await readFile(await download.path(), "utf8"));
   assert.deepEqual(exported, data);
+});
+
+test("命中缓存立即显示，同页慢请求只包含未缓存文字", async (t) => {
+  await settings({ cacheEnabled: true });
+  const seed = await article(t, '<p id="source">Cached browser source.</p>');
+  await translate(seed);
+  const page = await article(
+    t,
+    '<p id="missing">Uncached slow browser source.</p><p id="cached">Cached browser source.</p>',
+  );
+  const before = fixture.requests.length;
+  fixture.state.delayMs = 3000;
+  t.after(() => {
+    fixture.state.delayMs = 0;
+  });
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator("#cached [data-yeyi-owned=translation]")).toHaveText(
+    "译文：Cached browser source.",
+  );
+  await expect.poll(() => fixture.requests.length).toBe(before + 1);
+  const sources = fixture.requests
+    .slice(before)
+    .flatMap((request) =>
+      JSON.parse(request.body.messages.at(-1).content).segments.flatMap((segment) => segment.parts),
+    );
+  assert.deepEqual(sources, ["Uncached slow browser source."]);
+  await expect(page.locator("#missing [data-yeyi-owned=translation]")).toHaveCount(0);
 });

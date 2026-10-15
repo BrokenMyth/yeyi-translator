@@ -90,7 +90,11 @@ async function initialize() {
     if (message.type === "CONFIG_CHANGED") {
       latestConfig = message.config;
       control?.setConfig(latestConfig);
-      if (engine.active && engine.config.visibleOnly !== latestConfig.visibleOnly)
+      if (
+        engine.active &&
+        (engine.config.visibleOnly !== latestConfig.visibleOnly ||
+          engine.config.cacheEnabled !== latestConfig.cacheEnabled)
+      )
         engine.start(latestConfig, false);
       if (!engine.config) control?.update({ ...engine.getState(), mode: latestConfig.mode });
       respond(true);

@@ -1,6 +1,20 @@
 import { collectGroups, compareDocumentOrder, createChunks } from "./model.js";
 import { sendMessage } from "../shared/messaging.js";
-import { hasVisibleText } from "./visibility.js";
+import { visibleTranslationScope } from "./visibility.js";
+
+/** 使用同一字符计量约束缓存预检与 API 批次，保留中文上下文的预算。 */
+function chunkSize(chunk) {
+  return chunk.parts.reduce((sum, part) => sum + part.length, 0) + (chunk.context?.length || 0);
+}
+
+/** 只发送原文片段与上下文，不将节点、排版记录或缓存结构传到后台。 */
+function segmentsOf(tasks) {
+  return tasks.map(({ chunk }) => ({
+    id: chunk.id,
+    parts: chunk.parts,
+    ...(chunk.context ? { context: chunk.context } : {}),
+  }));
+}
 
 /**
  * 单个 frame 的整页翻译会话。原文、译文与缓存均只存在此页面的内存中。
@@ -15,6 +29,8 @@ export class TranslationEngine {
     this.onChange = onChange;
     /** @type {Map<Element,Object>} 仍可能需要恢复的段落。 */
     this.units = new Map();
+    /** @type {Map<Element,number>|null} 视口及上下预翻译窗口；0 为当前可视内容。 */
+    this.scope = null;
     /** @type {WeakMap<Text,Object>} 节点原文与最后一次自有写入。 */
     this.ownership = new WeakMap();
     /** @type {Map<string,Object>} 当前页面的有限译文缓存。 */
@@ -150,6 +166,83 @@ export class TranslationEngine {
     this.cacheRevision++;
     this.cache.clear();
     this.cacheChars = 0;
+    for (const unit of this.units.values())
+      for (const chunk of unit.chunks)
+        if (["unchecked", "checking"].includes(chunk.state)) chunk.state = "pending";
+    this.pump();
+  }
+
+  /** 视口内容优先，其余按距离排序；整页模式继续使用文档顺序。 */
+  compareUnits(first, second) {
+    return (
+      (this.scope?.get(first.element) || 0) - (this.scope?.get(second.element) || 0) ||
+      compareDocumentOrder(first.element, second.element)
+    );
+  }
+
+  /**
+   * 独立于网络批次读取缓存：命中立即完成并渲染，缺项才变为 pending。
+   * 未检查项保持 checking，不占用翻译批次；分页读取仍可在旧网络请求期间处理新增缓存命中。
+   * 停止、切换配置、清理或网站替换节点后，迟到查询不能覆盖新会话与页面内容。
+   */
+  async lookupCache(tasks, runId, revision) {
+    const current = () => this.active && this.runId === runId && this.cacheRevision === revision;
+    try {
+      let index = 0;
+      while (index < tasks.length && current()) {
+        const batch = [];
+        let length = 0;
+        while (index < tasks.length && batch.length < 18) {
+          const task = tasks[index];
+          const size = chunkSize(task.chunk);
+          if (batch.length && length + size > 4800) break;
+          batch.push(task);
+          length += size;
+          index++;
+        }
+        const cached = await sendMessage({
+          type: "LOOKUP_CACHE",
+          runId,
+          signature: this.config.signature,
+          segments: segmentsOf(batch),
+        });
+        if (!current()) return;
+        const hits = new Map(cached.map((item) => [item.id, item.parts]));
+        this.mutate(() => {
+          for (const { unit, chunk } of batch) {
+            if (this.units.get(unit.element) !== unit || chunk.state !== "checking") continue;
+            const parts = hits.get(chunk.id);
+            if (!parts) {
+              chunk.state = "pending";
+              continue;
+            }
+            chunk.translated = parts;
+            chunk.state = "done";
+            if (unit.chunks.every((item) => item.state === "done")) {
+              this.remember(unit);
+              this.renderUnit(unit);
+            }
+          }
+        });
+        this.publish();
+      }
+      if (this.config.visibleOnly) this.scheduleScan(60);
+    } catch (error) {
+      if (!current()) return;
+      if (error.fatal) {
+        this.error = error.message;
+        this.stop(false);
+        this.phase = "error";
+        this.publish();
+        return;
+      }
+      // 查询异常只回退到正常翻译，不覆盖或删除持久缓存。
+      for (const { unit, chunk } of tasks)
+        if (this.units.get(unit.element) === unit && chunk.state === "checking")
+          chunk.state = "pending";
+    } finally {
+      if (current()) this.pump();
+    }
   }
 
   /** 撤回段落的自有写入；网站后来修改的文字绝不会被旧原文覆盖。@param {Object} unit 段落。@returns {void} 无返回值。 */
@@ -235,6 +328,7 @@ export class TranslationEngine {
   scan() {
     if (this.config.visibleOnly && !this.frameVisible) return;
     const groups = collectGroups(document, this.ownership);
+    this.scope = this.config.visibleOnly ? visibleTranslationScope(groups) : null;
     this.mutate(() => {
       for (const [element, unit] of this.units) {
         const nodes = groups.get(element);
@@ -270,7 +364,7 @@ export class TranslationEngine {
           nodes: records.map((record) => ({ ...record, lastWritten: record.original })),
           chunks: [],
         };
-        if (this.config.visibleOnly && !hasVisibleText(records)) continue;
+        if (this.scope && !this.scope.has(element)) continue;
         unit.chunks = createChunks(unit);
         unit.nodes.forEach((record) => this.ownership.set(record.node, record));
         const cached = this.cache.get(this.cacheKey(unit));
@@ -280,11 +374,25 @@ export class TranslationEngine {
             chunk.state = "done";
           });
           this.renderUnit(unit);
+        } else if (this.config.cacheEnabled) {
+          for (const chunk of unit.chunks) chunk.state = "unchecked";
         }
         if (!unit.chunks.length) this.renderUnit(unit);
         this.units.set(element, unit);
       }
     });
+    const lookups = [...this.units.values()]
+      .filter((unit) => !this.scope || this.scope.has(unit.element))
+      .sort((first, second) => this.compareUnits(first, second))
+      .flatMap((unit) =>
+        unit.chunks
+          .filter((chunk) => chunk.state === "unchecked")
+          .map((chunk) => {
+            chunk.state = "checking";
+            return { unit, chunk };
+          }),
+      );
+    if (lookups.length) void this.lookupCache(lookups, this.runId, this.cacheRevision);
     this.publish();
   }
 
@@ -311,8 +419,11 @@ export class TranslationEngine {
     this.workers = 0;
     for (const unit of this.units.values()) {
       for (const chunk of unit.chunks)
-        if (chunk.state === "inflight" || (retry && chunk.state === "failed"))
-          chunk.state = "pending";
+        if (
+          ["inflight", "unchecked", "checking", "pending"].includes(chunk.state) ||
+          (retry && chunk.state === "failed")
+        )
+          chunk.state = config.cacheEnabled ? "unchecked" : "pending";
     }
     this.mutate(() => {
       for (const unit of this.units.values()) this.renderUnit(unit);
@@ -342,7 +453,8 @@ export class TranslationEngine {
     clearInterval(this.keepAlive);
     this.keepAlive = null;
     for (const unit of this.units.values())
-      for (const chunk of unit.chunks) if (chunk.state === "inflight") chunk.state = "pending";
+      for (const chunk of unit.chunks)
+        if (["inflight", "unchecked", "checking"].includes(chunk.state)) chunk.state = "pending";
     sendMessage({ type: "CANCEL_RUN", runId: oldRun }).catch(() => {});
     if (notify) {
       this.phase = "paused";
@@ -357,6 +469,7 @@ export class TranslationEngine {
       for (const unit of this.units.values()) this.restoreUnit(unit);
     });
     this.units.clear();
+    this.scope = null;
     this.ownership = new WeakMap();
     this.phase = "idle";
     this.error = "";
@@ -370,10 +483,11 @@ export class TranslationEngine {
     this.mutate(() => {
       for (const unit of this.units.values()) this.renderUnit(unit);
     });
+    if (this.config.visibleOnly) this.scheduleScan(60);
     this.publish();
   }
 
-  /** 按文档阅读顺序选择有界批次，新插入的段落也按当前位置排序。@returns {Object[]} 段落与片段任务。 */
+  /** 按阅读顺序或视口优先级选择未缓存的有界批次，窗口外任务保持等待。@returns {Object[]} 段落与片段任务。 */
   nextBatch() {
     if (this.config.visibleOnly && !this.frameVisible) return [];
     const candidates = [...this.units.values()]
@@ -381,15 +495,14 @@ export class TranslationEngine {
         (unit) =>
           unit.element.isConnected && unit.chunks.some((chunk) => chunk.state === "pending"),
       )
-      .filter((unit) => !this.config.visibleOnly || hasVisibleText(unit.nodes))
-      .sort((a, b) => compareDocumentOrder(a.element, b.element));
+      .filter((unit) => !this.scope || this.scope.has(unit.element))
+      .sort((first, second) => this.compareUnits(first, second));
     const tasks = [];
     let length = 0;
     for (const unit of candidates) {
       for (const chunk of unit.chunks) {
         if (chunk.state !== "pending") continue;
-        const size =
-          chunk.parts.reduce((sum, part) => sum + part.length, 0) + (chunk.context?.length || 0);
+        const size = chunkSize(chunk);
         if (tasks.length && (length + size > 4800 || tasks.length >= 18)) return tasks;
         chunk.state = "inflight";
         tasks.push({ unit, chunk });
@@ -410,7 +523,12 @@ export class TranslationEngine {
         void this.runBatch(tasks, this.runId);
       }
     }
-    if (!this.workers) this.phase = "watching";
+    if (!this.workers)
+      this.phase = [...this.units.values()].some((unit) =>
+        unit.chunks.some((chunk) => chunk.state === "checking"),
+      )
+        ? "translating"
+        : "watching";
     this.publish();
   }
 
@@ -423,11 +541,7 @@ export class TranslationEngine {
         type: "TRANSLATE_BATCH",
         runId,
         signature: this.config.signature,
-        segments: tasks.map(({ chunk }) => ({
-          id: chunk.id,
-          parts: chunk.parts,
-          ...(chunk.context ? { context: chunk.context } : {}),
-        })),
+        segments: segmentsOf(tasks),
       });
       if (!this.active || runId !== this.runId) return;
       const results = new Map(translated.map((item) => [item.id, item.parts]));
@@ -442,6 +556,7 @@ export class TranslationEngine {
           }
         }
       });
+      if (this.config.visibleOnly) this.scheduleScan(60);
     } catch (error) {
       if (!this.active || runId !== this.runId) return;
       // 格式错误只说明当前响应不可用；缩小批次后，其他段落仍可能正常返回。

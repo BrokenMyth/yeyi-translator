@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   TranslationCache,
   translateWithCache,
+  lookupCachedTranslations,
   cacheKey,
   CACHE_PREFIX,
 } from "../../src/background/cache.js";
@@ -44,6 +45,39 @@ const segment = (id, text = "Read this paragraph.", context) => ({
   id,
   parts: [text],
   ...(context ? { context } : {}),
+});
+
+test("排队前查询只返回当前配置下结构匹配的命中，不写入缓存或请求网络", async () => {
+  const storage = new LocalStorage();
+  const cache = new TranslationCache(storage);
+  const key = await cacheKey(publicSettings(settings).signature, segment("old"));
+  await cache.putMany([{ key, parts: ["已缓存的译文"] }]);
+  const before = structuredClone(storage.data);
+  assert.deepEqual(
+    await lookupCachedTranslations({
+      cache,
+      settings,
+      segments: [segment("now"), segment("missing", "New source.")],
+    }),
+    [{ id: "now", parts: ["已缓存的译文"] }],
+  );
+  assert.deepEqual(
+    await lookupCachedTranslations({
+      cache,
+      settings: { ...settings, cacheEnabled: false },
+      segments: [segment("now")],
+    }),
+    [],
+  );
+  assert.deepEqual(
+    await lookupCachedTranslations({
+      cache,
+      settings: { ...settings, targetLanguage: "ja" },
+      segments: [segment("now")],
+    }),
+    [],
+  );
+  assert.deepEqual(storage.data, before);
 });
 
 test("旧设置迁移默认关闭可视区域和持久缓存，保留 Key、网站及模型", () => {
