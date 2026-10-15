@@ -2,7 +2,7 @@
 
 页译使用你自己的 **DeepSeek 或 OpenAI API Key** 翻译网页，支持原文与译文逐段对照，也支持用译文替换原文。
 
-**当前版本：1.2.0。** 普通用户下载安装包即可使用，不需要安装 Node.js。
+**当前版本：1.3.0。** 普通用户下载安装包即可使用，不需要安装 Node.js。
 
 [下载安装包](https://github.com/BrokenMyth/yeyi-translator/releases/latest) · [查看全部版本](https://github.com/BrokenMyth/yeyi-translator/releases)
 
@@ -33,7 +33,7 @@
 ## 第一步：下载安装包
 
 1. 打开 [最新版本下载页面](https://github.com/BrokenMyth/yeyi-translator/releases/latest)。
-2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.2.0.zip`。
+2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.3.0.zip`。
 3. 把 ZIP 解压到一个准备长期保留的文件夹。
 4. 打开解压后的文件夹，确认里面能直接看到 **`manifest.json`**。
 
@@ -237,7 +237,7 @@ news.example.com
 3. 在扩展管理页找到“页译”，点击 **重新加载**。
 4. 刷新设置页和待翻译的网页。
 
-继续使用原来的插件目录，可以保留该扩展已有的本机设置。
+继续使用原来的插件目录，并重新加载同一个扩展，可以保留已有的 Key、设置、翻译缓存和人名字典。不要先移除旧扩展，也不要换一个目录重新加载成第二个扩展。
 
 ## 数据保存和访问权限
 
@@ -278,7 +278,7 @@ npm run build
 npm run package
 ```
 
-当前版本的安装包会写入 `release/yeyi-translator-1.2.0.zip`。
+当前版本的安装包会写入 `release/yeyi-translator-1.3.0.zip`。
 
 ### 运行检查和测试
 
