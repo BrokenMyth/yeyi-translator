@@ -156,6 +156,60 @@ test("Discord 内部滚动预翻译，开关只保留在完整设置且保存后
   assert.equal(config.data.visibleOnly, false);
 });
 
+test("X 式根元素滚动后可视翻译继续请求正文，兼容字体、缓存与恢复原文", async (t) => {
+  await settings({
+    visibleOnly: true,
+    mode: "replace",
+    optimizeChineseFont: true,
+    cacheEnabled: true,
+  });
+  const page = await article(
+    t,
+    `<style>html{height:100%;overflow-y:scroll}body{margin:0}article{height:100px;overflow:hidden}</style><main>${Array.from({ length: 50 }, (_, index) => `<article><div id="post${index}" data-testid="tweetText"><span style="font-weight:700">Search</span><span> result ${index}.</span></div></article>`).join("")}</main>`,
+  );
+  await page.evaluate(() => {
+    globalThis.postNodes = [...document.querySelector("#post22").children].map(
+      (element) => element.firstChild,
+    );
+  });
+  const before = fixture.requests.length;
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator("#post0")).toContainText("译文：result 0.");
+  await expect(page.locator("#post22")).toHaveText("Search result 22.");
+  await page.evaluate(() => window.scrollTo(0, 2200));
+  await expect(page.locator("#post22")).toContainText("译文：result 22.");
+  await expect(page.locator("#post30")).toContainText("译文：result 30.");
+  await expect(page.locator("#post49")).toHaveText("Search result 49.");
+  await expect(page.locator("#post22 span")).toHaveCount(2);
+  await expect(page.locator("#post22 span").first()).toHaveCSS("font-weight", "700");
+  assert.match(
+    await page
+      .locator("#post22 span")
+      .first()
+      .evaluate((element) => getComputedStyle(element).fontFamily),
+    /Microsoft YaHei/,
+  );
+  assert(
+    await page.evaluate(() =>
+      [...document.querySelector("#post22").children].every(
+        (element, index) => element.firstChild === postNodes[index],
+      ),
+    ),
+  );
+  assert.equal(
+    fixture.requests
+      .slice(before)
+      .flatMap((request) =>
+        JSON.parse(request.body.messages.at(-1).content).segments.flatMap((item) => item.parts),
+      )
+      .filter((part) => part === " result 0.").length,
+    1,
+  );
+  await page.screenshot({ path: resolve(output, "x-root-scroll.png") });
+  await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+  await expect(page.locator("#post22")).toHaveText("Search result 22.");
+});
+
 test("跨页面和刷新复用缓存，停用后不读取但保留原缓存", async (t) => {
   await settings({ cacheEnabled: true });
   const page = await article(t);
