@@ -20,7 +20,7 @@ before(async () => {
 after(() => browser?.close());
 
 /** 合成 Discord 式列表：关闭原生锚定，按距底部的距离响应消息高度变化。 */
-async function chat(t, mode, { managed = true, bottom = false } = {}) {
+async function chat(t, mode, { managed = true, bottom = false, fonts = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
   t.after(() => page.close());
   await page.route("http://127.0.0.1/", (route) =>
@@ -32,7 +32,7 @@ async function chat(t, mode, { managed = true, bottom = false } = {}) {
   await page.goto("http://127.0.0.1/");
   await page.addScriptTag({ content: source });
   await page.evaluate(
-    ({ mode, managed, bottom }) => {
+    ({ mode, managed, bottom, fonts }) => {
       const scroller = document.querySelector("#scroll");
       const list = document.querySelector("ol");
       scroller.scrollTop = bottom
@@ -77,9 +77,10 @@ async function chat(t, mode, { managed = true, bottom = false } = {}) {
         mode,
         cacheEnabled: true,
         visibleOnly: true,
+        optimizeChineseFont: fonts,
       });
     },
-    { mode, managed, bottom },
+    { mode, managed, bottom, fonts },
   );
   await expect.poll(() => page.evaluate(() => lookups.length)).toBeGreaterThan(0);
   return page;
@@ -211,6 +212,86 @@ test("消息总高度稳定后的连续滚动帧不被旧补偿抵消", async (t
   const trace = await page.evaluate(() => inertia);
   assert.equal(new Set(trace.heights).size, 1, "连续滚动期间消息总高度必须保持不变");
   assert(Math.abs(trace.movement - 30) <= 1, `连续上滚 30px 后实际移动 ${trace.movement}px`);
+});
+
+for (const mode of ["replace", "bilingual"]) {
+  test(`缓存返回不能中断浏览器仍在进行的平滑上滚（${mode}，开启字体优化）`, async (t) => {
+    const page = await chat(t, mode, { managed: false, fonts: true });
+    const trace = await page.evaluate(async () => {
+      const scroller = document.querySelector("#scroll");
+      // 先等初始定位事件结束，再让浏览器自己产生连续滚动帧，不用脚本逐帧赋 scrollTop。
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const target = scroller.scrollTop - 500;
+      const start = scroller.scrollTop;
+      let released = false;
+      let moving = true;
+      let writesDuringScroll = 0;
+      const observer = new MutationObserver((records) => {
+        if (moving)
+          writesDuringScroll += records.filter((record) => record.type === "characterData").length;
+      });
+      observer.observe(document.querySelector("ol"), { subtree: true, characterData: true });
+      const end = new Promise((resolve) =>
+        scroller.addEventListener(
+          "scrollend",
+          () => {
+            moving = false;
+            resolve(scroller.scrollTop);
+          },
+          { once: true },
+        ),
+      );
+      scroller.addEventListener("scroll", () => {
+        if (released || start - scroller.scrollTop < 30) return;
+        released = true;
+        releaseCache = true;
+        for (const lookup of lookups) lookup.resolve({ ok: true, data: lookup.data });
+      });
+      scroller.scrollTo({ top: target, behavior: "smooth" });
+      const endTop = await end;
+      observer.disconnect();
+      return { target, endTop, released, writesDuringScroll };
+    });
+    assert.equal(trace.released, true, "缓存必须在平滑滚动途中返回");
+    assert(
+      Math.abs(trace.endTop - trace.target) <= 1,
+      `预期滚到 ${trace.target}px，实际被打断在 ${trace.endTop}px`,
+    );
+    assert.equal(trace.writesDuringScroll, 0, "滚动未结束时不应改动聊天排版");
+    await expect(page.locator("#message-content-22")).toContainText("缓存译文");
+  });
+}
+
+test("滚动中站点回收或改写消息，停稳后只显示当前节点对应的缓存", async (t) => {
+  const page = await chat(t, "replace");
+  await scrollUp(page);
+  await page.evaluate(async () => {
+    releaseCache = true;
+    for (const lookup of lookups) lookup.resolve({ ok: true, data: lookup.data });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    globalThis.beforeSettled = document.querySelector("#message-content-22").textContent;
+    document.querySelector("#chat-messages-21").remove();
+    document.querySelector("#message-content-22").firstChild.data = "Cached source 122.";
+    engine.scan();
+  });
+  assert((await page.evaluate(() => beforeSettled)).startsWith("Cached source 22."));
+  await expect(page.locator("#message-content-22")).toHaveText("缓存译文122。");
+  assert.equal(await page.locator("#chat-messages-21").count(), 0);
+  assert.equal(await page.evaluate(() => requests.length), 0);
+});
+
+test("滚动中恢复原文会丢弃等候显示的译文，停稳后不会重新写回", async (t) => {
+  const page = await chat(t, "replace");
+  await scrollUp(page);
+  await page.evaluate(async () => {
+    releaseCache = true;
+    for (const lookup of lookups) lookup.resolve({ ok: true, data: lookup.data });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    engine.restore();
+  });
+  await page.waitForTimeout(250);
+  assert((await page.locator("#message-content-22").textContent()).startsWith("Cached source 22."));
+  assert.equal(await page.evaluate(() => engine.getState().total), 0);
 });
 
 for (const mode of ["replace", "bilingual"]) {

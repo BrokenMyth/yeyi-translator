@@ -27,6 +27,7 @@ async function initialize() {
       total: states.reduce((sum, state) => sum + state.total, 0),
       done: states.reduce((sum, state) => sum + state.done, 0),
       failed: states.reduce((sum, state) => sum + state.failed, 0),
+      retrying: states.reduce((sum, state) => sum + (state.retrying || 0), 0),
       error: own.error || others.find((state) => state.error)?.error || "",
       phase:
         own.active && states.some((state) => state.phase === "translating")
@@ -144,7 +145,7 @@ async function initialize() {
       latestConfig = message.config;
       control?.setConfig(latestConfig);
       if (message.action === "start" || message.action === "retry")
-        engine.start(latestConfig, true);
+        engine.start(latestConfig, message.action === "retry");
       if (message.action === "stop") engine.stop();
       if (message.action === "restore") {
         frames.clear();

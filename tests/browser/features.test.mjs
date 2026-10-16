@@ -261,6 +261,116 @@ test("Discord 缓存立即显示后保持阅读位置，恢复原文也不拉回
   assert(Math.abs(restoredTop - before.top) <= 1, `恢复原文后偏移 ${restoredTop - before.top}px`);
 });
 
+test("真实扩展的译文响应在 Discord 平滑滚动中返回，不打断动画或改写消息", async (t) => {
+  await settings({ mode: "replace", optimizeChineseFont: true });
+  fixture.state.delayMs = 180;
+  t.after(() => {
+    fixture.state.delayMs = 0;
+  });
+  const page = await article(
+    t,
+    `<style>body{margin:0;overflow:hidden}#scroll{height:320px;width:400px;overflow:auto;overflow-anchor:none;position:relative}ol{list-style:none;margin:0;padding:0}li{padding:8px}p{margin:0;font:16px/24px monospace}</style><div id="app-mount"><div id="scroll"><ol data-list-id="chat-messages">${Array.from({ length: 45 }, (_, i) => `<li id="chat-messages-${i}"><p id="message-content-${i}">Preview exactly what will be downloaded before starting.</p></li>`).join("")}</ol></div></div>`,
+  );
+  await page.evaluate(() => {
+    document.querySelector("#scroll").scrollTop =
+      document.querySelector("#chat-messages-22").offsetTop;
+  });
+  const before = fixture.requests.length;
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect.poll(() => fixture.requests.length).toBeGreaterThan(before);
+  const trace = await page.evaluate(async () => {
+    const scroller = document.querySelector("#scroll");
+    const target = scroller.scrollTop - 500;
+    let writes = 0;
+    const observer = new MutationObserver((records) => {
+      writes += records.length;
+    });
+    observer.observe(document.querySelector("ol"), {
+      characterData: true,
+      childList: true,
+      attributes: true,
+      subtree: true,
+    });
+    const end = new Promise((resolve) =>
+      scroller.addEventListener("scrollend", resolve, { once: true }),
+    );
+    scroller.scrollTo({ top: target, behavior: "smooth" });
+    await end;
+    observer.disconnect();
+    return { target, actual: scroller.scrollTop, writes };
+  });
+  assert(
+    Math.abs(trace.actual - trace.target) <= 1,
+    `实际停在 ${trace.actual}，目标 ${trace.target}`,
+  );
+  assert.equal(trace.writes, 0, "运动期间扩展应保留所有聊天文本、节点及字体");
+  await expect(page.locator("#message-content-44")).toHaveText("开始前准确预览将要下载的内容。");
+  await page.screenshot({ path: resolve(output, "discord-smooth-scroll.png") });
+});
+
+test("真实失败请求不挡正常正文，每段最多三次重试，手动重试和缓存保持兼容", async (t) => {
+  await settings({ cacheEnabled: true, mode: "replace" });
+  fixture.state.malformedText = "Broken source.";
+  t.after(() => {
+    fixture.state.malformedText = "";
+  });
+  const page = await article(
+    t,
+    `<p id="broken">Broken source.</p>${Array.from({ length: 19 }, (_, i) => `<p id="healthy-${i}">Healthy source ${i}.</p>`).join("")}`,
+  );
+  const before = fixture.requests.length;
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await page.getByRole("button", { name: "打开翻译设置" }).click();
+  await expect(page.locator("#healthy-18")).toHaveText("译文：Healthy source 18.");
+  const parts = () =>
+    fixture.requests
+      .slice(before)
+      .map((request) =>
+        JSON.parse(request.body.messages.at(-1).content).segments.flatMap(
+          (segment) => segment.parts,
+        ),
+      );
+  assert.deepEqual(parts()[1], ["Healthy source 17.", "Healthy source 18."]);
+  await expect(page.locator('[data-yeyi-owned="control"]').locator(".status")).toContainText(
+    "等待重试",
+  );
+  await expect(page.getByRole("button", { name: "重试失败部分", exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
+  assert.equal(parts().filter((batch) => batch.includes("Broken source.")).length, 4);
+  await expect(page.locator("#healthy-0")).toHaveText("译文：Healthy source 0.");
+  assert.equal((await message({ type: "GET_CACHE_STATS" })).data.count, 19);
+  const count = fixture.requests.length;
+  fixture.state.malformedText = "";
+  await page.getByRole("button", { name: "重试失败部分", exact: true }).click();
+  await expect(page.locator("#broken")).toHaveText("译文：Broken source.");
+  assert.equal(fixture.requests.length, count + 1);
+  assert.deepEqual(parts().at(-1), ["Broken source."]);
+  assert.equal((await message({ type: "GET_CACHE_STATS" })).data.count, 20);
+  await page.reload();
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator("#broken")).toHaveText("译文：Broken source.");
+  assert.equal(fixture.requests.length, count + 1);
+});
+
+test("真实临时网络错误最多首次加三次请求，不叠加后台内部重试", async (t) => {
+  fixture.state.transientRemaining = 10;
+  t.after(() => {
+    fixture.state.transientRemaining = 0;
+  });
+  const page = await article(t);
+  const before = fixture.requests.length;
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await page.getByRole("button", { name: "打开翻译设置" }).click();
+  await expect(page.getByRole("button", { name: "重试失败部分", exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
+  assert.equal(fixture.requests.length, before + 4);
+  await page.waitForTimeout(300);
+  assert.equal(fixture.requests.length, before + 4);
+  await expect(page.locator("#source")).toHaveText("Reusable source paragraph.");
+});
+
 test("跨页面和刷新复用缓存，停用后不读取但保留原缓存", async (t) => {
   await settings({ cacheEnabled: true });
   const page = await article(t);
