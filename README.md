@@ -2,7 +2,7 @@
 
 页译使用你自己的 **DeepSeek 或 OpenAI API Key** 翻译网页，支持原文与译文逐段对照，也支持用译文替换原文。
 
-**当前版本：1.3.1。** 普通用户下载安装包即可使用，不需要安装 Node.js。
+**当前版本：1.3.2。** 普通用户下载安装包即可使用，不需要安装 Node.js。
 
 [下载安装包](https://github.com/T-miracle/yeyi-translator/releases/latest) · [查看全部版本](https://github.com/T-miracle/yeyi-translator/releases)
 
@@ -33,7 +33,7 @@
 ## 第一步：下载安装包
 
 1. 打开 [最新版本下载页面](https://github.com/T-miracle/yeyi-translator/releases/latest)。
-2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.3.1.zip`。
+2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.3.2.zip`。
 3. 把 ZIP 解压到一个准备长期保留的文件夹。
 4. 打开解压后的文件夹，确认里面能直接看到 **`manifest.json`**。
 
@@ -288,7 +288,7 @@ npm run build
 npm run package
 ```
 
-当前版本的安装包会写入 `release/yeyi-translator-1.3.1.zip`。
+当前版本的安装包会写入 `release/yeyi-translator-1.3.2.zip`。
 
 ### 运行检查和测试
 

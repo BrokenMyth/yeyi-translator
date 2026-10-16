@@ -210,6 +210,57 @@ test("X 式根元素滚动后可视翻译继续请求正文，兼容字体、缓
   await expect(page.locator("#post22")).toHaveText("Search result 22.");
 });
 
+test("Discord 缓存立即显示后保持阅读位置，恢复原文也不拉回滚动", async (t) => {
+  await settings({ cacheEnabled: true, mode: "replace", optimizeChineseFont: true });
+  const body = `<style>body{margin:0;overflow:hidden}#scroll{height:320px;width:400px;overflow:auto;overflow-anchor:none;position:relative}ol{list-style:none;margin:0;padding:0}li{padding:8px}p{margin:0;font:16px/24px monospace}</style><div id="app-mount"><div id="scroll"><ol data-list-id="chat-messages">${Array.from({ length: 45 }, (_, index) => `<li id="chat-messages-${index}"><p id="message-content-${index}">Preview exactly what will be downloaded before starting.</p></li>`).join("")}</ol></div></div>`;
+  const seeded = await article(t, body);
+  await seeded.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(seeded.locator("#message-content-44")).toHaveText("开始前准确预览将要下载的内容。");
+  await seeded.close();
+  await settings({ visibleOnly: true });
+  const page = await article(t, body);
+  const before = await page.evaluate(() => {
+    const scroller = document.querySelector("#scroll");
+    const anchor = document.querySelector("#chat-messages-22");
+    scroller.scrollTop = anchor.offsetTop + 8;
+    return {
+      top: anchor.getBoundingClientRect().top,
+      height: anchor.getBoundingClientRect().height,
+    };
+  });
+  const requests = fixture.requests.length;
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator("#message-content-22")).toHaveText("开始前准确预览将要下载的内容。");
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }),
+  );
+  const after = await page.locator("#chat-messages-22").evaluate((element) => ({
+    top: element.getBoundingClientRect().top,
+    height: element.getBoundingClientRect().height,
+  }));
+  assert(after.height < before.height, "缓存译文应实际改变消息高度");
+  assert(Math.abs(after.top - before.top) <= 1, `缓存命中后偏移 ${after.top - before.top}px`);
+  assert.equal(fixture.requests.length, requests);
+  await page.screenshot({ path: resolve(output, "discord-cache-scroll.png") });
+  await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+  await expect(page.locator("#message-content-22")).toHaveText(
+    "Preview exactly what will be downloaded before starting.",
+  );
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      }),
+  );
+  const restoredTop = await page
+    .locator("#chat-messages-22")
+    .evaluate((element) => element.getBoundingClientRect().top);
+  assert(Math.abs(restoredTop - before.top) <= 1, `恢复原文后偏移 ${restoredTop - before.top}px`);
+});
+
 test("跨页面和刷新复用缓存，停用后不读取但保留原缓存", async (t) => {
   await settings({ cacheEnabled: true });
   const page = await article(t);

@@ -2,6 +2,7 @@ import { collectGroups, compareDocumentOrder, createChunks } from "./model.js";
 import { sendMessage } from "../shared/messaging.js";
 import { visibleTranslationScope } from "./visibility.js";
 import { translationFont, TranslationFontStyles } from "./translation-font.js";
+import { TranslationScrollAnchor } from "./scroll-anchor.js";
 
 const BATCH_MAX_SEGMENTS = 18;
 const BATCH_MAX_CHARS = 4800;
@@ -41,6 +42,8 @@ export class TranslationEngine {
     this.ownership = new WeakMap();
     /** @type {TranslationFontStyles} 译文容器的原字体与引用记录，仅在当前页面内存中保存。 */
     this.fontStyles = new TranslationFontStyles();
+    /** @type {TranslationScrollAnchor} 消息列表内本批译文写入时的阅读位置。 */
+    this.scrollAnchor = new TranslationScrollAnchor();
     /** @type {Map<string,Object>} 当前页面的有限译文缓存。 */
     this.cache = new Map();
     /** @type {number} 缓存键及值占用的 UTF-16 字符数。 */
@@ -157,7 +160,7 @@ export class TranslationEngine {
     if (pending.some((record) => !this.isOwnedMutation(record))) this.scheduleScan();
     this.observer.disconnect();
     try {
-      mutation();
+      this.scrollAnchor.preserve(mutation);
     } finally {
       this.observe();
     }
@@ -502,6 +505,7 @@ export class TranslationEngine {
     this.cacheLookups = new Set();
     this.observer.disconnect();
     this.frameObserver?.disconnect();
+    this.scrollAnchor.cancel();
     document.removeEventListener("scroll", this.onViewportChange, true);
     window.removeEventListener("resize", this.onViewportChange);
     clearTimeout(this.scanTimer);
