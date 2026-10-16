@@ -268,9 +268,18 @@ export class TranslationEngine {
   restoreUnit(unit) {
     unit.anchor?.remove();
     unit.anchor = null;
+    this.restoreNodes(unit);
+  }
+
+  /** 只撤回文本及字体的自有改动，不动双语节点；相同原文不重复写入，避免通知站点重排。 */
+  restoreNodes(unit) {
     for (const record of unit.nodes) {
       this.fontStyles.restore(record);
-      if (record.node.isConnected && record.node.data === record.lastWritten)
+      if (
+        record.node.isConnected &&
+        record.node.data === record.lastWritten &&
+        record.node.data !== record.original
+      )
         record.node.data = record.original;
       record.lastWritten = record.original;
     }
@@ -298,28 +307,37 @@ export class TranslationEngine {
         fragments[nodeIndex][fragmentIndex] += part;
       });
     const translated = fragments.map((parts) => parts.join(""));
-    this.restoreUnit(unit);
     if (this.config.mode === "replace") {
+      unit.anchor?.remove();
+      unit.anchor = null;
+      // 替换译文直接写最终结果，不先闪回原文或撤回字体；未变化的片段完全不写 DOM。
       unit.nodes.forEach((record, index) => {
-        record.node.data = translated[index];
+        if (record.node.data !== translated[index]) record.node.data = translated[index];
         record.lastWritten = translated[index];
       });
-    } else if (
-      translated.join("").trim() !==
-      unit.nodes
-        .map((record) => record.original)
-        .join("")
-        .trim()
-    ) {
-      const anchor = document.createElement("span");
-      anchor.dataset.yeyiOwned = "translation";
-      anchor.lang = this.config.targetLanguage;
-      anchor.setAttribute("dir", "auto");
-      anchor.style.cssText =
-        "display:block!important;position:static!important;font-size:0.95em!important;line-height:1.65!important;margin:0.35em 0 0!important;padding:0.28em 0 0!important;border:0!important;border-top:1px dashed color-mix(in srgb,currentColor 24%,transparent)!important;opacity:0.88!important;white-space:pre-wrap!important;overflow-wrap:anywhere!important;text-align:inherit!important;font-family:inherit!important;color:inherit!important;background:transparent!important;";
-      anchor.textContent = translated.join("");
-      unit.element.append(anchor);
-      unit.anchor = anchor;
+    } else {
+      this.restoreNodes(unit);
+      const text = translated.join("");
+      const original = unit.nodes.map((record) => record.original).join("");
+      if (text.trim() !== original.trim()) {
+        let anchor = unit.anchor;
+        // 同一双语段落复用节点，避免恢复/重建节点时让消息列表重新定位。
+        if (!anchor?.isConnected || anchor.parentElement !== unit.element) {
+          unit.anchor?.remove();
+          anchor = document.createElement("span");
+          anchor.dataset.yeyiOwned = "translation";
+          anchor.setAttribute("dir", "auto");
+          anchor.style.cssText =
+            "display:block!important;position:static!important;font-size:0.95em!important;line-height:1.65!important;margin:0.35em 0 0!important;padding:0.28em 0 0!important;border:0!important;border-top:1px dashed color-mix(in srgb,currentColor 24%,transparent)!important;opacity:0.88!important;white-space:pre-wrap!important;overflow-wrap:anywhere!important;text-align:inherit!important;font-family:inherit!important;color:inherit!important;background:transparent!important;";
+          unit.element.append(anchor);
+          unit.anchor = anchor;
+        }
+        if (anchor.lang !== this.config.targetLanguage) anchor.lang = this.config.targetLanguage;
+        if (anchor.textContent !== text) anchor.textContent = text;
+      } else {
+        unit.anchor?.remove();
+        unit.anchor = null;
+      }
     }
     this.applyFonts(unit);
   }
@@ -329,11 +347,12 @@ export class TranslationEngine {
     if (this.config.mode === "replace") {
       for (const record of unit.nodes) this.fontStyles.apply(record, this.config);
     } else if (unit.anchor) {
-      unit.anchor.style.setProperty(
-        "font-family",
-        translationFont(this.config, unit.anchor.textContent) || "inherit",
-        "important",
-      );
+      const family = translationFont(this.config, unit.anchor.textContent) || "inherit";
+      if (
+        unit.anchor.style.getPropertyValue("font-family") !== family ||
+        unit.anchor.style.getPropertyPriority("font-family") !== "important"
+      )
+        unit.anchor.style.setProperty("font-family", family, "important");
     }
   }
 
@@ -505,7 +524,6 @@ export class TranslationEngine {
     this.cacheLookups = new Set();
     this.observer.disconnect();
     this.frameObserver?.disconnect();
-    this.scrollAnchor.cancel();
     document.removeEventListener("scroll", this.onViewportChange, true);
     window.removeEventListener("resize", this.onViewportChange);
     clearTimeout(this.scanTimer);

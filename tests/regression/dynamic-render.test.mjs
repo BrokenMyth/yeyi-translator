@@ -112,3 +112,98 @@ test("持续更新其他节点不会无限推迟新帖采集，暂停后停止�
   await page.waitForTimeout(500);
   await expect(page.locator("#post")).toHaveText("First source post.");
 });
+
+test("单行译文重复显示不重写文字和字体，字号行距及最终尺寸保持不变", async (t) => {
+  const page = await article(t);
+  const result = await page.evaluate(() => {
+    const post = document.querySelector("#post");
+    post.style.cssText = "font:16px/22px Arial";
+    engine.setFontOptimization(true);
+    const measure = () => {
+      const style = getComputedStyle(post.querySelector("span"));
+      const rect = post.getBoundingClientRect();
+      return {
+        size: style.fontSize,
+        line: style.lineHeight,
+        width: rect.width,
+        height: rect.height,
+      };
+    };
+    const before = measure();
+    const observer = new MutationObserver(() => {});
+    observer.observe(post, {
+      subtree: true,
+      characterData: true,
+      childList: true,
+      attributes: true,
+    });
+    engine.setMode("replace");
+    engine.start({ ...engine.config }, false);
+    engine.scan();
+    const mutations = observer.takeRecords().map((record) => record.type);
+    observer.disconnect();
+    return { before, after: measure(), mutations };
+  });
+  assert.deepEqual(result.after, result.before);
+  assert.equal(result.after.size, "16px");
+  assert.equal(result.after.line, "22px");
+  assert.deepEqual(result.mutations, []);
+  assert.equal(await page.evaluate(() => requests.length), 1);
+});
+
+test("站点重写一个片段时，只更新该片段，其他译文和字体不闪回原文", async (t) => {
+  const page = await article(t);
+  await page.evaluate(() => {
+    const other = document.createElement("span");
+    other.id = "other";
+    other.textContent = "Second source post.";
+    document.querySelector("#post").append(other);
+    engine.scan();
+  });
+  await expect(page.locator("#other")).toHaveText("第二条译文。");
+  const result = await page.evaluate(() => {
+    engine.setFontOptimization(true);
+    const observer = new MutationObserver(() => {});
+    observer.observe(document.querySelector("#other"), {
+      subtree: true,
+      characterData: true,
+      attributes: true,
+    });
+    originalNode.data = "First source post.";
+    engine.scan();
+    const mutations = observer.takeRecords().map((record) => record.type);
+    observer.disconnect();
+    return {
+      mutations,
+      first: originalNode.data,
+      other: document.querySelector("#other").textContent,
+    };
+  });
+  assert.equal(result.first, "第一条译文。");
+  assert.equal(result.other, "第二条译文。");
+  assert.deepEqual(result.mutations, []);
+});
+
+test("双语模式重复显示复用现有译文节点，不删除重建或重复写入样式", async (t) => {
+  const page = await article(t);
+  const result = await page.evaluate(() => {
+    engine.setMode("bilingual");
+    engine.setFontOptimization(true);
+    const post = document.querySelector("#post");
+    const anchor = post.querySelector('[data-yeyi-owned="translation"]');
+    const observer = new MutationObserver(() => {});
+    observer.observe(post, {
+      subtree: true,
+      characterData: true,
+      childList: true,
+      attributes: true,
+    });
+    engine.setMode("bilingual");
+    engine.start({ ...engine.config }, false);
+    const mutations = observer.takeRecords().map((record) => record.type);
+    observer.disconnect();
+    return { same: anchor === post.querySelector('[data-yeyi-owned="translation"]'), mutations };
+  });
+  assert.equal(result.same, true);
+  assert.deepEqual(result.mutations, []);
+});

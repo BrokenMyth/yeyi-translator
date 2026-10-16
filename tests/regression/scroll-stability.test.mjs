@@ -181,6 +181,38 @@ test("浏览器原生滚动锚定开启时不会重复补偿", async (t) => {
   await expect(page.locator("#scroll")).toHaveCSS("overflow-anchor", "auto");
 });
 
+test("消息总高度稳定后的连续滚动帧不被旧补偿抵消", async (t) => {
+  const page = await chat(t, "replace", { managed: false });
+  await page.evaluate(() => {
+    globalThis.inertia = new Promise((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (!document.querySelector("#message-content-22").textContent.includes("缓存译文")) return;
+        observer.disconnect();
+        const scroller = document.querySelector("#scroll");
+        const anchor = document.querySelector("#chat-messages-22");
+        requestAnimationFrame(() => {
+          const start = anchor.getBoundingClientRect().top;
+          const heights = [scroller.scrollHeight];
+          scroller.scrollTop -= 18;
+          requestAnimationFrame(() => {
+            heights.push(scroller.scrollHeight);
+            scroller.scrollTop -= 12;
+            requestAnimationFrame(() => {
+              heights.push(scroller.scrollHeight);
+              resolve({ movement: anchor.getBoundingClientRect().top - start, heights });
+            });
+          });
+        });
+      });
+      observer.observe(document.querySelector("ol"), { subtree: true, characterData: true });
+    });
+  });
+  await release(page);
+  const trace = await page.evaluate(() => inertia);
+  assert.equal(new Set(trace.heights).size, 1, "连续滚动期间消息总高度必须保持不变");
+  assert(Math.abs(trace.movement - 30) <= 1, `连续上滚 30px 后实际移动 ${trace.movement}px`);
+});
+
 for (const mode of ["replace", "bilingual"]) {
   test(`缓存命中改变消息高度后保持上滚后的阅读位置（${mode}）`, async (t) => {
     const page = await chat(t, mode);
