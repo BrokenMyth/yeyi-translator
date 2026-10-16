@@ -1,6 +1,7 @@
 import { collectGroups, compareDocumentOrder, createChunks } from "./model.js";
 import { sendMessage } from "../shared/messaging.js";
 import { visibleTranslationScope } from "./visibility.js";
+import { translationFont, TranslationFontStyles } from "./translation-font.js";
 
 const BATCH_MAX_SEGMENTS = 18;
 const BATCH_MAX_CHARS = 4800;
@@ -38,6 +39,8 @@ export class TranslationEngine {
     this.scope = null;
     /** @type {WeakMap<Text,Object>} 节点原文与最后一次自有写入。 */
     this.ownership = new WeakMap();
+    /** @type {TranslationFontStyles} 译文容器的原字体与引用记录，仅在当前页面内存中保存。 */
+    this.fontStyles = new TranslationFontStyles();
     /** @type {Map<string,Object>} 当前页面的有限译文缓存。 */
     this.cache = new Map();
     /** @type {number} 缓存键及值占用的 UTF-16 字符数。 */
@@ -263,6 +266,7 @@ export class TranslationEngine {
     unit.anchor?.remove();
     unit.anchor = null;
     for (const record of unit.nodes) {
+      this.fontStyles.restore(record);
       if (record.node.isConnected && record.node.data === record.lastWritten)
         record.node.data = record.original;
       record.lastWritten = record.original;
@@ -314,6 +318,30 @@ export class TranslationEngine {
       unit.element.append(anchor);
       unit.anchor = anchor;
     }
+    this.applyFonts(unit);
+  }
+
+  /** 字体开关只更新已完成译文的显示，不触发重译，也不改动缓存或页面原有节点层级。 */
+  applyFonts(unit) {
+    if (this.config.mode === "replace") {
+      for (const record of unit.nodes) this.fontStyles.apply(record, this.config);
+    } else if (unit.anchor) {
+      unit.anchor.style.setProperty(
+        "font-family",
+        translationFont(this.config, unit.anchor.textContent) || "inherit",
+        "important",
+      );
+    }
+  }
+
+  /** 保存后即时切换字体，暂停的页面也能更新，已有译文直接复用。 */
+  setFontOptimization(enabled) {
+    if (!this.config || this.config.optimizeChineseFont === enabled) return;
+    this.config.optimizeChineseFont = enabled;
+    this.mutate(() => {
+      for (const unit of this.units.values())
+        if (unit.chunks.every((chunk) => chunk.state === "done")) this.applyFonts(unit);
+    });
   }
 
   /** 缓存键包含服务、模型、目标语言及完整节点原文。@param {Object} unit 段落。@returns {string} 内存键。 */
@@ -361,13 +389,16 @@ export class TranslationEngine {
       for (const [element, records] of groups) {
         if (this.units.has(element)) {
           const unit = this.units.get(element);
-          if (
-            unit.chunks.every((chunk) => chunk.state === "done") &&
-            this.config.mode === "bilingual" &&
-            unit.anchor &&
-            !unit.anchor.isConnected
-          )
-            this.renderUnit(unit);
+          if (unit.chunks.every((chunk) => chunk.state === "done")) {
+            // X 等动态站点可能在同一文本节点写回相同原文。保留已完成状态，但重新显示已有译文。
+            const overwritten =
+              this.config.mode === "replace" &&
+              unit.nodes.some((record) => record.node.data !== record.lastWritten);
+            const removedAnchor =
+              this.config.mode === "bilingual" && unit.anchor && !unit.anchor.isConnected;
+            if (overwritten || removedAnchor) this.renderUnit(unit);
+            else this.applyFonts(unit);
+          }
           continue;
         }
         const unit = {

@@ -10,11 +10,12 @@
     "format": "prettier --write src scripts tests manifest.json package.json README.md CHANGELOG.md",
     "format:check": "prettier --check src scripts tests manifest.json package.json README.md CHANGELOG.md",
     "test": "npm run test:regression && node tests/browser/run.mjs && node --test tests/browser/features.test.mjs && npm run test:shortcuts && npm run test:names",
-    "test:regression": "node --test tests/regression/api-connection.test.mjs tests/regression/inline-code.test.mjs tests/regression/translation-order.test.mjs tests/regression/batching.test.mjs tests/regression/chinese-skip.test.mjs tests/regression/cache.test.mjs tests/regression/cache-priority.test.mjs tests/regression/visibility.test.mjs",
+    "test:regression": "node --test tests/regression/api-connection.test.mjs tests/regression/inline-code.test.mjs tests/regression/translation-order.test.mjs tests/regression/batching.test.mjs tests/regression/chinese-skip.test.mjs tests/regression/cache.test.mjs tests/regression/cache-priority.test.mjs tests/regression/visibility.test.mjs tests/regression/translation-font.test.mjs tests/regression/dynamic-render.test.mjs",
     "test:browser": "node tests/browser/run.mjs",
     "test:features": "node --test tests/browser/features.test.mjs",
     "test:shortcuts": "node --test tests/regression/shortcut.test.mjs tests/browser/shortcut.test.mjs",
     "test:names": "node --test tests/regression/name-dictionary.test.mjs tests/browser/name-dictionary.test.mjs",
+    "test:fonts": "node --test tests/regression/translation-font.test.mjs tests/regression/dynamic-render.test.mjs && node --test --test-name-pattern=\"中文字体开关|保存字体开关|中文字体优化兼容汉字\" tests/browser/features.test.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },
   "devDependencies": {

@@ -16,6 +16,7 @@ import { normalizeShortcut } from "./shortcut.js";
  * @property {boolean} showFloatingButton 是否显示网页入口。
  * @property {string} translationShortcut 切换翻译与恢复原文的快捷键；空字符串表示停用。
  * @property {boolean} visibleOnly 是否只翻译当前视口可见的段落。
+ * @property {boolean} optimizeChineseFont 是否为中文译文优先使用本机中文字体。
  * @property {boolean} cacheEnabled 是否跨页面、刷新和重启保存译文缓存。
  * @property {number} cacheLimitMb 缓存容量提醒阈值（MiB），超出后继续保存。
  * @property {string[]} autoTranslateSites 精确匹配的主机名，不隐式包含子域。
@@ -49,6 +50,7 @@ export const DEFAULT_SETTINGS = {
   showFloatingButton: true,
   translationShortcut: "Ctrl+X",
   visibleOnly: false,
+  optimizeChineseFont: false,
   cacheEnabled: false,
   cacheLimitMb: 512,
   autoTranslateSites: [],
@@ -139,6 +141,7 @@ export function normalizeSettings(input = {}) {
       input.translationShortcut ?? DEFAULT_SETTINGS.translationShortcut,
     ),
     visibleOnly: input.visibleOnly === true,
+    optimizeChineseFont: input.optimizeChineseFont === true,
     cacheEnabled: input.cacheEnabled === true,
     cacheLimitMb,
     autoTranslateSites: normalizeSites(input.autoTranslateSites || []),
@@ -159,6 +162,7 @@ export function publicSettings(settings) {
     showFloatingButton: settings.showFloatingButton,
     translationShortcut: settings.translationShortcut,
     visibleOnly: settings.visibleOnly,
+    optimizeChineseFont: settings.optimizeChineseFont,
     cacheEnabled: settings.cacheEnabled,
     nameDictionarySignature: settings.nameDictionarySignature || "",
     autoTranslateSites: settings.autoTranslateSites,

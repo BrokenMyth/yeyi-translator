@@ -205,6 +205,7 @@ async function handleMessage(message, sender) {
               "translationShortcut",
               "autoTranslateSites",
               "visibleOnly",
+              "optimizeChineseFont",
               "cacheEnabled",
               "cacheLimitMb",
             ].includes(key),

@@ -80,6 +80,7 @@ before(async () => {
 beforeEach(async () => {
   await settings({
     visibleOnly: false,
+    optimizeChineseFont: false,
     cacheEnabled: false,
     cacheLimitMb: 512,
     autoTranslateSites: [],
@@ -353,6 +354,108 @@ test("命中缓存立即显示，同页慢请求只包含未缓存文字", async
     );
   assert.deepEqual(sources, ["Uncached slow browser source."]);
   await expect(page.locator("#missing [data-yeyi-owned=translation]")).toHaveCount(0);
+});
+
+test("中文字体开关默认关闭，保存和重启设置页保持，Key、缓存及人名字典均保留", async () => {
+  await expect(options.locator('[name="optimizeChineseFont"]')).not.toBeChecked();
+  const saved = (await message({ type: "GET_SETTINGS" })).data;
+  const signature = (await message({ type: "GET_PUBLIC_CONFIG" })).data.signature;
+  const dictionary = (await message({ type: "GET_NAME_DICTIONARY" })).data;
+  await upload({
+    format: "yeyi-translation-cache",
+    version: 1,
+    entries: [{ key: "a".repeat(64), parts: ["字体测试缓存"] }],
+  });
+  await expect(options.locator("#cacheResult")).toContainText("已导入 1 条");
+  const cache = (await message({ type: "EXPORT_CACHE" })).data;
+  await options.locator('[name="optimizeChineseFont"]').check();
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  assert.deepEqual((await message({ type: "GET_SETTINGS" })).data, {
+    ...saved,
+    optimizeChineseFont: true,
+  });
+  assert.equal((await message({ type: "GET_PUBLIC_CONFIG" })).data.signature, signature);
+  assert.deepEqual((await message({ type: "EXPORT_CACHE" })).data, cache);
+  assert.deepEqual((await message({ type: "GET_NAME_DICTIONARY" })).data, dictionary);
+  await options.reload();
+  await expect(options.locator('[name="optimizeChineseFont"]')).toBeChecked();
+  await options
+    .locator("#preferences")
+    .screenshot({ path: resolve(output, "font-preference.png") });
+});
+
+test("保存字体开关即时更新中文译文，关闭或恢复原文还原字体，字号字重及缓存请求不变", async (t) => {
+  await settings({ mode: "replace", cacheEnabled: true });
+  const page = await article(
+    t,
+    '<p id="source" lang="ja" style="font-family:Georgia; font-size:17px; font-weight:600; line-height:28px">Welcome to the open web</p>',
+  );
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator("#source")).toHaveText("欢迎来到开放网络");
+  const readFont = () =>
+    page.locator("#source").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        family: style.fontFamily,
+        size: style.fontSize,
+        weight: style.fontWeight,
+        lineHeight: style.lineHeight,
+      };
+    });
+  const original = await readFont();
+  const requests = fixture.requests.length;
+  await options.locator('[name="optimizeChineseFont"]').check();
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  await expect.poll(async () => (await readFont()).family).toContain("Microsoft YaHei");
+  assert.deepEqual({ ...(await readFont()), family: original.family }, original);
+  assert.equal(fixture.requests.length, requests);
+  // 在同一文本节点重绘原文，验证真实扩展仍复用译文，且字体优化不会妨碍站点重绘。
+  await page.locator("#source").evaluate((element) => {
+    element.firstChild.data = "Welcome to the open web";
+  });
+  await expect(page.locator("#source")).toHaveText("欢迎来到开放网络");
+  assert.equal(fixture.requests.length, requests);
+  await options.locator('[name="optimizeChineseFont"]').uncheck();
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  await expect.poll(readFont).toEqual(original);
+  await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+  await expect(page.locator("#source")).toHaveText("Welcome to the open web");
+  assert.deepEqual(await readFont(), original);
+});
+
+test("中文字体优化兼容汉字人名字典，本机命中与站点重绘均不调用 API", async (t) => {
+  await settings({ mode: "replace", optimizeChineseFont: true, cacheEnabled: true });
+  const dictionary = await worker.evaluate(() => chrome.storage.local.get("nameDictionary"));
+  t.after(() =>
+    worker.evaluate(async (stored) => {
+      if (stored.nameDictionary) await chrome.storage.local.set(stored);
+      else await chrome.storage.local.remove("nameDictionary");
+    }, dictionary),
+  );
+  const imported = await message({
+    type: "IMPORT_NAME_DICTIONARY",
+    entries: [{ src: "試験名", dst: "测试名", info: "合成字体测试" }],
+  });
+  assert.equal(imported.ok, true);
+  const requests = fixture.requests.length;
+  const page = await article(
+    t,
+    '<p id="source" lang="ja" style="font-family:Georgia">&#x8A66;&#x9A13;&#x540D;</p>',
+  );
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator("#source")).toHaveText("测试名");
+  assert.match(
+    await page.locator("#source").evaluate((element) => getComputedStyle(element).fontFamily),
+    /Microsoft YaHei/,
+  );
+  await page.locator("#source").evaluate((element) => {
+    element.firstChild.data = "試験名";
+  });
+  await expect(page.locator("#source")).toHaveText("测试名");
+  assert.equal(fixture.requests.length, requests);
 });
 
 for (const cacheEnabled of [false, true]) {

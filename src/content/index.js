@@ -121,6 +121,7 @@ async function initialize() {
           engine.config.nameDictionarySignature !== latestConfig.nameDictionarySignature)
       )
         engine.start(latestConfig, false);
+      if (engine.config) engine.setFontOptimization(latestConfig.optimizeChineseFont === true);
       if (!engine.config) control?.update({ ...engine.getState(), mode: latestConfig.mode });
       respond(true);
       return false;

@@ -35,6 +35,7 @@ function readForm() {
     showFloatingButton: !form.elements.hideFloatingButton.checked,
     translationShortcut: form.elements.translationShortcut.value,
     visibleOnly: form.elements.visibleOnly.checked,
+    optimizeChineseFont: form.elements.optimizeChineseFont.checked,
     cacheEnabled: form.elements.cacheEnabled.checked,
     cacheLimitMb: form.elements.cacheLimitMb.value,
     autoTranslateSites: form.elements.autoTranslateSites.value,
@@ -265,6 +266,7 @@ async function initialize() {
   form.elements.hideFloatingButton.checked = !settings.showFloatingButton;
   form.elements.translationShortcut.value = settings.translationShortcut;
   form.elements.visibleOnly.checked = settings.visibleOnly;
+  form.elements.optimizeChineseFont.checked = settings.optimizeChineseFont;
   form.elements.cacheEnabled.checked = settings.cacheEnabled;
   form.elements.cacheLimitMb.value = settings.cacheLimitMb;
   form.elements.autoTranslateSites.value = settings.autoTranslateSites.join("\n");
