@@ -2,7 +2,7 @@
 
 页译使用你自己的 **DeepSeek 或 OpenAI API Key** 翻译网页，支持原文与译文逐段对照，也支持用译文替换原文。
 
-**当前版本：1.3.5。** 普通用户下载安装包即可使用，不需要安装 Node.js。
+**当前版本：1.3.6。** 普通用户下载安装包即可使用，不需要安装 Node.js。
 
 [下载安装包](https://github.com/T-miracle/yeyi-translator/releases/latest) · [查看全部版本](https://github.com/T-miracle/yeyi-translator/releases)
 
@@ -33,7 +33,7 @@
 ## 第一步：下载安装包
 
 1. 打开 [最新版本下载页面](https://github.com/T-miracle/yeyi-translator/releases/latest)。
-2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.3.5.zip`。
+2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.3.6.zip`。
 3. 把 ZIP 解压到一个准备长期保留的文件夹。
 4. 打开解压后的文件夹，确认里面能直接看到 **`manifest.json`**。
 
@@ -100,6 +100,8 @@ Chrome 和 Edge 使用同一个安装包，分别在各自的扩展管理页加�
 - **OpenAI／兼容接口**：可选接口默认、关闭思考、极低、低、中、高、极高、最高。模型支持的档位不同，非推理模型请选择接口默认；不支持所选档位时会保留接口错误，不会自动降档。[OpenAI 官方参数说明](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
 
 推理级别控制思考开启后的强度，更高档位通常增加耗时和用量。升级保留原行为：从未设置过推理的 DeepSeek 官方配置继续关闭；上一版选择的“关闭思考”迁移为关闭，已选择低、高或最高的配置迁移为开启并保留级别，接口默认保持接口默认。迁移只补齐读取结果，不主动重写本机数据。不同的实际请求参数分别复用缓存，旧译文和人名字典保留，切回原模式与级别可继续命中原缓存。
+
+更新扩展文件后，还需要在扩展管理页点击 **重新加载**。仅刷新设置页时，旧后台可能仍在运行，无法保存新增字段；设置页会兼容显示旧配置并提示 **重新加载扩展**，更新完成前禁止保存和连接测试，避免误报成功。完成重新加载后再次打开设置即可，已有 Key、缓存和字典保留。
 
 ### 使用代理或其他兼容接口
 
@@ -300,7 +302,7 @@ npm run build
 npm run package
 ```
 
-当前版本的安装包会写入 `release/yeyi-translator-1.3.5.zip`。
+当前版本的安装包会写入 `release/yeyi-translator-1.3.6.zip`。
 
 ### 运行检查和测试
 

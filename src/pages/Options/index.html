@@ -28,7 +28,7 @@
         <div class="sidebar-note">
           <span class="mini-mark">译</span>
           <p>语言之间，<br />少一点距离。</p>
-          <small>Chrome & Edge<br />Manifest V3 · v1.3.5</small>
+          <small>Chrome & Edge<br />Manifest V3 · v1.3.6</small>
         </div>
       </aside>
       <main>
@@ -128,7 +128,7 @@
                 <div class="provider-footer">
                   <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer"
                     >获取 Key ↗</a
-                  ><button type="button" class="test-button" data-test="deepseek">
+                  ><button type="button" class="test-button" data-test="deepseek" disabled>
                     测试连接 ↗
                   </button>
                 </div>
@@ -207,7 +207,9 @@
                 <div class="provider-footer">
                   <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer"
                     >获取 Key ↗</a
-                  ><button type="button" class="test-button" data-test="openai">测试连接 ↗</button>
+                  ><button type="button" class="test-button" data-test="openai" disabled>
+                    测试连接 ↗
+                  </button>
                 </div>
                 <p class="hint test-result" data-result="openai" role="status"></p>
               </fieldset>
@@ -494,8 +496,13 @@
             </p>
           </div>
           <div class="save-bar">
-            <div id="saveStatus" role="status">设置保存后生效</div>
-            <button type="submit" class="button primary" id="saveButton">
+            <div>
+              <div id="saveStatus" role="status">正在读取设置…</div>
+              <button type="button" class="button quiet" id="reloadExtension" hidden>
+                重新加载扩展
+              </button>
+            </div>
+            <button type="submit" class="button primary" id="saveButton" disabled>
               保存设置 <span>↗</span>
             </button>
           </div>

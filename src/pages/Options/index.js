@@ -10,6 +10,7 @@ import { validateCacheFile, cacheFileBatches } from "../../shared/cache-file.js"
 const form = document.querySelector("#settingsForm");
 const status = document.querySelector("#saveStatus");
 const saveButton = document.querySelector("#saveButton");
+const reloadButton = document.querySelector("#reloadExtension");
 const modelPickers = new Map();
 let cacheBusy = false;
 let cacheStats;
@@ -66,6 +67,8 @@ function markProvider() {
 /** 保存表单，只有明确保存才写入本机配置。@param {SubmitEvent} event 表单提交。@returns {Promise<void>} 保存完成。 */
 async function save(event) {
   event.preventDefault();
+  // 初始化和版本检查完成前禁止提交，避免旧后台丢弃新字段后仍提示保存成功。
+  if (saveButton.disabled) return;
   saveButton.disabled = true;
   try {
     const settings = readForm();
@@ -84,6 +87,7 @@ async function save(event) {
 /** 验证指定服务的当前表单配置，无需先保存。@param {string} provider 服务标识。@returns {Promise<void>} 测试结束。 */
 async function testConnection(provider) {
   const button = document.querySelector(`[data-test="${provider}"]`);
+  if (button.disabled) return;
   const result = document.querySelector(`[data-result="${provider}"]`);
   button.disabled = true;
   button.textContent = "正在测试…";
@@ -109,12 +113,14 @@ async function testConnection(provider) {
 form.addEventListener("submit", save);
 /** 将用户输入及自动匹配的模型变更标记为未保存。@returns {void} 无返回值。 */
 function markDirty(event) {
-  if (event?.target?.type === "file" || event?.target?.closest("#names")) return;
+  if (!reloadButton.hidden || event?.target?.type === "file" || event?.target?.closest("#names"))
+    return;
   status.textContent = "有未保存的修改";
   status.className = "";
   markProvider();
 }
 form.addEventListener("input", markDirty);
+reloadButton.addEventListener("click", () => chrome.runtime.reload());
 
 /** 直接录入按键组合；Tab 保留焦点导航，Escape 退出录入，不触发表单提交或浏览器剪切。 */
 form.elements.translationShortcut.addEventListener("keydown", (event) => {
@@ -266,7 +272,10 @@ document.querySelectorAll("[data-key]").forEach((button) =>
 
 /** 载入本机配置，不在任何控制台输出密钥。@returns {Promise<void>} 初始化完成。 */
 async function initialize() {
-  const settings = await sendMessage({ type: "GET_SETTINGS" });
+  const stored = await sendMessage({ type: "GET_SETTINGS" });
+  // 更新文件不会自动替换仍驻留的 service worker；先兼容回填旧值，再检查后台是否支持保存新字段。
+  const settings = normalizeSettings(stored);
+  const supportsThinkingMode = Object.hasOwn(stored.providers.deepseek, "thinkingMode");
   form.elements.deepseekThinkingMode.value = settings.providers.deepseek.thinkingMode;
   for (const id of ["deepseek", "openai"]) {
     form.elements[`${id}Key`].value = settings.providers[id].apiKey;
@@ -291,6 +300,12 @@ async function initialize() {
   form.elements.autoTranslateSites.value = settings.autoTranslateSites.join("\n");
   markProvider();
   await refreshCache();
+  if (!supportsThinkingMode) {
+    status.textContent = "设置页已更新，请重新加载扩展完成更新。原配置已保留。";
+    status.className = "error";
+    reloadButton.hidden = false;
+    return;
+  }
   for (const provider of ["deepseek", "openai"]) {
     const picker = new ModelPicker(
       provider,
@@ -300,6 +315,9 @@ async function initialize() {
     modelPickers.set(provider, picker);
     if (settings.providers[provider].apiKey) void picker.refresh({ automatic: true });
   }
+  saveButton.disabled = false;
+  for (const button of document.querySelectorAll("[data-test]")) button.disabled = false;
+  status.textContent = "设置保存后生效";
 }
 initialize().catch((error) => {
   status.textContent = error.message;
