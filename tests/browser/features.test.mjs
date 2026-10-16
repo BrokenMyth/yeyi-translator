@@ -71,6 +71,108 @@ const upload = (data) =>
     buffer: Buffer.from(JSON.stringify(data)),
   });
 
+test("推理级别在服务卡片内分别选择，连接测试和保存请求共用当前档位", async () => {
+  const deepseek = options.getByRole("combobox", { name: "DeepSeek 推理级别", exact: true });
+  const openai = options.getByRole("combobox", { name: "OpenAI 推理级别", exact: true });
+  assert.deepEqual(
+    await deepseek.locator("option").evaluateAll((items) => items.map((item) => item.value)),
+    ["default", "none", "low", "high", "max"],
+  );
+  await expect(deepseek).toHaveValue("default");
+  await expect(openai).toHaveValue("default");
+  const before = (await message({ type: "GET_SETTINGS" })).data;
+  await deepseek.selectOption("max");
+  await openai.selectOption("medium");
+  await options.locator('[data-test="deepseek"]').click();
+  await expect(options.locator('[data-result="deepseek"]')).toContainText("连接成功");
+  assert.equal(fixture.requests.at(-1).body.reasoning_effort, "max");
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  const expected = structuredClone(before);
+  expected.providers.deepseek.reasoningEffort = "max";
+  expected.providers.openai.reasoningEffort = "medium";
+  assert.deepEqual((await message({ type: "GET_SETTINGS" })).data, expected);
+  await options.reload();
+  await expect(deepseek).toHaveValue("max");
+  await expect(openai).toHaveValue("medium");
+  await options
+    .locator('[data-provider="deepseek"]')
+    .screenshot({ path: resolve(output, "reasoning-settings.png") });
+  await options.setViewportSize({ width: 390, height: 844 });
+  await options
+    .locator('[data-provider="deepseek"]')
+    .screenshot({ path: resolve(output, "reasoning-settings-mobile.png") });
+  assert.equal(
+    await options.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    true,
+  );
+  await options.setViewportSize({ width: 1280, height: 900 });
+});
+
+test("推理级别保存后重启正在翻译的页面，缓存分档保留且切回原档位可复用", async (t) => {
+  await settings({ cacheEnabled: true });
+  const page = await article(t);
+  const before = fixture.requests.length;
+  await translate(page);
+  await expect.poll(async () => (await message({ type: "GET_CACHE_STATS" })).data.count).toBe(1);
+  const original = (await message({ type: "EXPORT_CACHE" })).data.entries[0];
+  const chooseEffort = async (effort) => {
+    await options
+      .getByRole("combobox", { name: "DeepSeek 推理级别", exact: true })
+      .selectOption(effort);
+    await options.locator("#saveButton").click();
+    await expect(options.locator("#saveStatus")).toContainText("已保存");
+  };
+  await chooseEffort("low");
+  await expect.poll(() => fixture.requests.length).toBe(before + 2);
+  assert.equal(fixture.requests.at(-1).body.reasoning_effort, "low");
+  await expect.poll(async () => (await message({ type: "GET_CACHE_STATS" })).data.count).toBe(2);
+  const stored = (await message({ type: "EXPORT_CACHE" })).data;
+  assert(
+    stored.entries.some(
+      (entry) =>
+        entry.key === original.key &&
+        JSON.stringify(entry.parts) === JSON.stringify(original.parts),
+    ),
+  );
+  await chooseEffort("default");
+  await expect(page.locator("#source [data-yeyi-owned=translation]")).toHaveCount(1);
+  await expect
+    .poll(async () => {
+      const tabs = await worker.evaluate(() => chrome.tabs.query({}));
+      const tab = tabs.find((tab) => tab.url === page.url());
+      return worker.evaluate(
+        (tabId) => chrome.tabs.sendMessage(tabId, { type: "GET_STATE" }, { frameId: 0 }),
+        tab.id,
+      );
+    })
+    .toMatchObject({ active: true, done: 1, phase: "watching" });
+  assert.equal(fixture.requests.length, before + 2);
+  assert.deepEqual((await message({ type: "EXPORT_CACHE" })).data, stored);
+});
+
+test("推理级别非法配置不能覆盖本机设置，OpenAI 选项完整且保存后仍可测试", async () => {
+  const before = (await message({ type: "GET_SETTINGS" })).data;
+  const invalid = structuredClone(before);
+  invalid.providers.deepseek.reasoningEffort = "bad-level";
+  const result = await message({ type: "SAVE_SETTINGS", settings: invalid });
+  assert.equal(result.ok, false);
+  assert.deepEqual((await message({ type: "GET_SETTINGS" })).data, before);
+  const openai = options.getByRole("combobox", { name: "OpenAI 推理级别", exact: true });
+  assert.deepEqual(
+    await openai.locator("option").evaluateAll((items) => items.map((item) => item.value)),
+    ["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+  );
+  await options.locator('[name="openaiUrl"]').fill(`${fixture.url}/v1`);
+  await options.locator('[name="openaiModel"]').fill("o3");
+  await options.locator('[name="openaiKey"]').fill("fixture-secret-reasoning-openai");
+  await openai.selectOption("low");
+  await options.locator('[data-test="openai"]').click();
+  await expect(options.locator('[data-result="openai"]')).toContainText("连接成功");
+  assert.equal(fixture.requests.at(-1).body.reasoning_effort, "low");
+  assert.equal(fixture.requests.at(-1).body.thinking, undefined);
+});
+
 before(async () => {
   await mkdir(output, { recursive: true });
   fixture = await startServer();

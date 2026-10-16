@@ -1,4 +1,5 @@
 import { completionUrl, modelsUrl, LANGUAGES } from "../shared/settings.js";
+import { reasoningParameters } from "../shared/reasoning.js";
 import {
   matchingNames,
   translateNamePart,
@@ -488,8 +489,8 @@ export async function translateBatch({
       },
     ],
     response_format: { type: "json_object" },
+    ...reasoningParameters(provider),
   };
-  if (new URL(endpoint).hostname === "api.deepseek.com") request.thinking = { type: "disabled" };
   for (let attempt = 0; attempt < 3; attempt++) {
     signal.throwIfAborted();
     const controller = new AbortController();

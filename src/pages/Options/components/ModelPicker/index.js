@@ -15,6 +15,8 @@ export class ModelPicker {
     this.urlInput = root.querySelector(`[name="${provider}Url"]`);
     /** @type {HTMLInputElement} 表单提交的真实模型 ID，也允许手动输入。 */
     this.input = root.querySelector(`[name="${provider}Model"]`);
+    /** @type {HTMLSelectElement} 测试连接与保存设置共用的推理档位。 */
+    this.reasoningSelect = root.querySelector(`[name="${provider}ReasoningEffort"]`);
     /** @type {HTMLSelectElement} 接口返回的模型及手动输入入口。 */
     this.select = root.querySelector("[data-model-picker]");
     /** @type {HTMLButtonElement} 重新获取列表的入口。 */
@@ -47,6 +49,7 @@ export class ModelPicker {
       apiKey: this.keyInput.value.trim(),
       baseUrl: normalizeBaseUrl(this.urlInput.value),
       model: this.input.value.trim(),
+      reasoningEffort: this.reasoningSelect.value,
     };
   }
 

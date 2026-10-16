@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, LANGUAGES, normalizeSettings } from "../../shared/settings.js";
 import { shortcutFromEvent } from "../../shared/shortcut.js";
+import { REASONING_LEVELS } from "../../shared/reasoning.js";
 import { sendMessage, populateLanguages } from "../../shared/messaging.js";
 import { ModelPicker } from "./components/ModelPicker/index.js";
 import { NameDictionaryEditor } from "./components/NameDictionary/index.js";
@@ -14,6 +15,13 @@ let cacheBusy = false;
 let cacheStats;
 let cacheRefreshTimer;
 populateLanguages(form.elements.targetLanguage, LANGUAGES);
+for (const id of ["deepseek", "openai"]) {
+  const levels = REASONING_LEVELS.filter(
+    ([level]) => id !== "deepseek" || ["default", "none", "low", "high", "max"].includes(level),
+  );
+  for (const [value, label] of levels)
+    form.elements[`${id}ReasoningEffort`].add(new Option(label, value));
+}
 new NameDictionaryEditor(document.querySelector("#names"));
 
 /** 从表单读取并校验可保存配置。@returns {Object} 配置对象。 */
@@ -27,6 +35,7 @@ function readForm() {
           apiKey: form.elements[`${id}Key`].value,
           model: form.elements[`${id}Model`].value,
           baseUrl: form.elements[`${id}Url`].value,
+          reasoningEffort: form.elements[`${id}ReasoningEffort`].value,
         },
       ]),
     ),
@@ -259,6 +268,12 @@ async function initialize() {
     form.elements[`${id}Key`].value = settings.providers[id].apiKey;
     form.elements[`${id}Model`].value = settings.providers[id].model;
     form.elements[`${id}Url`].value = settings.providers[id].baseUrl;
+    const effort = settings.providers[id].reasoningEffort;
+    const select = form.elements[`${id}ReasoningEffort`];
+    // 保留通过兼容接口保存的有效档位，不因服务卡片的常用选项范围而丢失配置。
+    if (![...select.options].some((option) => option.value === effort))
+      select.add(new Option(REASONING_LEVELS.find(([value]) => value === effort)[1], effort));
+    select.value = effort;
   }
   form.elements.provider.value = settings.provider;
   form.elements.targetLanguage.value = settings.targetLanguage;

@@ -1,4 +1,5 @@
 import { normalizeShortcut } from "./shortcut.js";
+import { normalizeReasoningEffort, reasoningSignature } from "./reasoning.js";
 
 /** @typedef {'deepseek'|'openai'} ProviderId 支持的 API 服务。 */
 /**
@@ -6,6 +7,7 @@ import { normalizeShortcut } from "./shortcut.js";
  * @property {string} apiKey 用户自己的密钥，仅允许扩展可信上下文读取。
  * @property {string} baseUrl API 根地址或完整的 Chat Completions 地址。
  * @property {string} model 用户可修改的模型名称。
+ * @property {string} reasoningEffort 推理档位；default 表示不指定，none 表示关闭思考。
  */
 /**
  * @typedef {Object} Settings 持久设置；不包含网页或译文缓存。
@@ -42,8 +44,18 @@ export const LANGUAGES = [
 export const DEFAULT_SETTINGS = {
   provider: "deepseek",
   providers: {
-    deepseek: { apiKey: "", baseUrl: "https://api.deepseek.com", model: "deepseek-flash" },
-    openai: { apiKey: "", baseUrl: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+    deepseek: {
+      apiKey: "",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-flash",
+      reasoningEffort: "none",
+    },
+    openai: {
+      apiKey: "",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4.1-mini",
+      reasoningEffort: "default",
+    },
   },
   targetLanguage: "zh-CN",
   mode: "bilingual",
@@ -125,6 +137,10 @@ export function normalizeSettings(input = {}) {
       baseUrl: normalizeBaseUrl(String(candidate.baseUrl ?? defaults.baseUrl)),
       model: String(candidate.model ?? defaults.model).trim(),
     };
+    providers[id].reasoningEffort = normalizeReasoningEffort(
+      candidate.reasoningEffort,
+      providers[id].baseUrl,
+    );
     if (!providers[id].model || providers[id].model.length > 200) {
       throw new Error("模型名称不能为空，且不能超过 200 个字符。");
     }
@@ -154,9 +170,13 @@ export function publicSettings(settings) {
   const signature = [settings.provider, current.baseUrl, current.model, settings.targetLanguage];
   // 无有效字典时保持旧缓存键兼容；摘要不向网页暴露人名及描述。
   if (settings.nameDictionarySignature) signature.push(settings.nameDictionarySignature);
+  const reasoning = reasoningSignature(current);
+  if (reasoning) signature.push(["reasoning", reasoning]);
   return {
     provider: settings.provider,
     model: current.model,
+    reasoningEffort: current.reasoningEffort,
+    reasoningSignature: reasoning,
     targetLanguage: settings.targetLanguage,
     mode: settings.mode,
     showFloatingButton: settings.showFloatingButton,

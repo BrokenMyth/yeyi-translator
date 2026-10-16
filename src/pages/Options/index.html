@@ -106,6 +106,13 @@
                   </label>
                 </div>
                 <label class="field"
+                  ><span class="field-title">推理级别</span
+                  ><select name="deepseekReasoningEffort" aria-label="DeepSeek 推理级别"></select>
+                  <p class="hint">
+                    默认关闭思考；选择低、高或最高即可开启。级别越高，通常耗时与用量越多。
+                  </p></label
+                >
+                <label class="field"
                   ><span class="field-title">Base URL</span
                   ><input
                     name="deepseekUrl"
@@ -177,6 +184,13 @@
                     >
                   </label>
                 </div>
+                <label class="field"
+                  ><span class="field-title">推理级别</span
+                  ><select name="openaiReasoningEffort" aria-label="OpenAI 推理级别"></select>
+                  <p class="hint">
+                    非推理模型请选择接口默认；可用档位取决于模型。更高档位通常耗时、用量更多。
+                  </p></label
+                >
                 <label class="field"
                   ><span class="field-title">Base URL</span
                   ><input

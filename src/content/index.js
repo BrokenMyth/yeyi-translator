@@ -119,6 +119,7 @@ async function initialize() {
         engine.active &&
         (engine.config.visibleOnly !== latestConfig.visibleOnly ||
           engine.config.cacheEnabled !== latestConfig.cacheEnabled ||
+          engine.config.reasoningSignature !== latestConfig.reasoningSignature ||
           engine.config.nameDictionarySignature !== latestConfig.nameDictionarySignature)
       )
         engine.start(latestConfig, false);
