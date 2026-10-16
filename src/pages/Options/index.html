@@ -28,7 +28,7 @@
         <div class="sidebar-note">
           <span class="mini-mark">译</span>
           <p>语言之间，<br />少一点距离。</p>
-          <small>Chrome & Edge<br />Manifest V3 · v1.3.4</small>
+          <small>Chrome & Edge<br />Manifest V3 · v1.3.5</small>
         </div>
       </aside>
       <main>
@@ -106,10 +106,15 @@
                   </label>
                 </div>
                 <label class="field"
+                  ><span class="field-title">思考模式</span
+                  ><select name="deepseekThinkingMode" aria-label="DeepSeek 思考模式"></select>
+                  <p class="hint">独立控制是否思考。接口默认由服务端决定。</p></label
+                >
+                <label class="field"
                   ><span class="field-title">推理级别</span
                   ><select name="deepseekReasoningEffort" aria-label="DeepSeek 推理级别"></select>
                   <p class="hint">
-                    默认关闭思考；选择低、高或最高即可开启。级别越高，通常耗时与用量越多。
+                    仅在思考模式选择“开启”时生效。调整级别不会开启思考，更高级别通常耗时、用量更多。
                   </p></label
                 >
                 <label class="field"

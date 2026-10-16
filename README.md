@@ -2,7 +2,7 @@
 
 页译使用你自己的 **DeepSeek 或 OpenAI API Key** 翻译网页，支持原文与译文逐段对照，也支持用译文替换原文。
 
-**当前版本：1.3.4。** 普通用户下载安装包即可使用，不需要安装 Node.js。
+**当前版本：1.3.5。** 普通用户下载安装包即可使用，不需要安装 Node.js。
 
 [下载安装包](https://github.com/T-miracle/yeyi-translator/releases/latest) · [查看全部版本](https://github.com/T-miracle/yeyi-translator/releases)
 
@@ -33,7 +33,7 @@
 ## 第一步：下载安装包
 
 1. 打开 [最新版本下载页面](https://github.com/T-miracle/yeyi-translator/releases/latest)。
-2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.3.4.zip`。
+2. 在页面的 **Assets（资源）** 中下载 `yeyi-translator-1.3.5.zip`。
 3. 把 ZIP 解压到一个准备长期保留的文件夹。
 4. 打开解压后的文件夹，确认里面能直接看到 **`manifest.json`**。
 
@@ -93,12 +93,13 @@ Chrome 和 Edge 使用同一个安装包，分别在各自的扩展管理页加�
 
 ### 选择推理级别
 
-每个服务卡片的“模型”下方都有 **推理级别**，两家服务分别保存，测试连接也使用当前选择的档位。修改后点击“保存设置”，正在翻译的页面会按新档位重新翻译。
+每个服务卡片的“模型”下方都有 **推理级别**，两家服务分别保存。DeepSeek 另有独立的 **思考模式**，测试连接使用与网页翻译相同的开关和级别。修改后点击“保存设置”，实际生效参数发生变化时，正在翻译的页面才会重新翻译。
 
-- **DeepSeek**：可选接口默认、关闭思考、低、高、最高。默认保持关闭思考；选择低、高或最高时明确开启思考。[DeepSeek 官方参数说明](https://api-docs.deepseek.com/api/create-chat-completion/)
+- **DeepSeek 思考模式**：可选关闭、开启、接口默认。是否思考只由此设置决定；接口默认由服务端决定。
+- **DeepSeek 推理级别**：可选接口默认、低、高、最高，仅在思考模式选择“开启”时发送。关闭时可以预选级别，调高也不会开启思考、重译或使缓存失效。[DeepSeek 官方参数说明](https://api-docs.deepseek.com/api/create-chat-completion/)
 - **OpenAI／兼容接口**：可选接口默认、关闭思考、极低、低、中、高、极高、最高。模型支持的档位不同，非推理模型请选择接口默认；不支持所选档位时会保留接口错误，不会自动降档。[OpenAI 官方参数说明](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
 
-更高的推理档位通常增加耗时和用量。升级不会自动开启思考：已有 DeepSeek 官方配置继续关闭，其他接口继续使用原有默认行为。不同档位分别复用缓存，旧译文和人名字典保留，切回原档位可继续命中原缓存。
+推理级别控制思考开启后的强度，更高档位通常增加耗时和用量。升级保留原行为：从未设置过推理的 DeepSeek 官方配置继续关闭；上一版选择的“关闭思考”迁移为关闭，已选择低、高或最高的配置迁移为开启并保留级别，接口默认保持接口默认。迁移只补齐读取结果，不主动重写本机数据。不同的实际请求参数分别复用缓存，旧译文和人名字典保留，切回原模式与级别可继续命中原缓存。
 
 ### 使用代理或其他兼容接口
 
@@ -299,7 +300,7 @@ npm run build
 npm run package
 ```
 
-当前版本的安装包会写入 `release/yeyi-translator-1.3.4.zip`。
+当前版本的安装包会写入 `release/yeyi-translator-1.3.5.zip`。
 
 ### 运行检查和测试
 

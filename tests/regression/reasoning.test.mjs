@@ -56,9 +56,14 @@ test("推理级别兼容旧设置：官方保持关闭，代理和 OpenAI 保持
   const untouched = structuredClone(previous);
   const settings = normalizeSettings(previous);
   assert.deepEqual(previous, untouched);
-  assert.equal(settings.providers.deepseek.reasoningEffort, "none");
+  assert.equal(settings.providers.deepseek.reasoningEffort, "default");
+  assert.equal(settings.providers.deepseek.thinkingMode, "disabled");
   assert.equal(settings.providers.openai.reasoningEffort, "default");
-  assert.deepEqual(settings.providers.deepseek, { ...official, reasoningEffort: "none" });
+  assert.deepEqual(settings.providers.deepseek, {
+    ...official,
+    reasoningEffort: "default",
+    thinkingMode: "disabled",
+  });
   assert.equal(settings.providers.openai.apiKey, "saved-openai-key");
   assert.equal(settings.providers.openai.model, "custom-model");
   for (const key of [
@@ -143,7 +148,11 @@ test("不同推理级别隔离缓存，旧默认及字典缓存键保持兼容�
           ...settings,
           providers: {
             ...settings.providers,
-            deepseek: { ...settings.providers.deepseek, reasoningEffort: effort },
+            deepseek: {
+              ...settings.providers.deepseek,
+              thinkingMode: "enabled",
+              reasoningEffort: effort,
+            },
           },
         };
         const config = publicSettings(changed);
@@ -160,6 +169,70 @@ test("不同推理级别隔离缓存，旧默认及字典缓存键保持兼容�
   }
   assert.equal(reasoningSignature({ ...official, reasoningEffort: "none" }), "");
   assert.equal(reasoningSignature({ ...official, reasoningEffort: "default" }), "default");
+});
+
+test("拆分开关后兼容已保存的组合档位，请求及缓存身份保持一致且读取不改写原配置", () => {
+  for (const baseUrl of [official.baseUrl, "https://proxy.example/v1"]) {
+    for (const reasoningEffort of [undefined, "none", "default", "low", "high", "max"]) {
+      const previous = { ...official, baseUrl, reasoningEffort };
+      const untouched = structuredClone(previous);
+      const expectedRequest = reasoningParameters(previous);
+      const expectedSignature = reasoningSignature(previous);
+      const next = normalizeSettings({ providers: { deepseek: previous } });
+      assert.deepEqual(previous, untouched);
+      assert.deepEqual(reasoningParameters(next.providers.deepseek), expectedRequest);
+      assert.equal(reasoningSignature(next.providers.deepseek), expectedSignature);
+      assert.deepEqual(normalizeSettings(next), next);
+    }
+  }
+});
+
+test("关闭思考及接口默认时预选任何推理级别都不会开启或产生新缓存身份", async () => {
+  for (const baseUrl of [official.baseUrl, "https://proxy.example/v1"]) {
+    for (const thinkingMode of ["disabled", "default"]) {
+      const signatures = new Set();
+      for (const reasoningEffort of ["default", "low", "high", "max"]) {
+        const provider = { ...official, baseUrl, thinkingMode, reasoningEffort };
+        const sent = await requestFor(provider);
+        assert.deepEqual(
+          sent.thinking,
+          thinkingMode === "disabled" && baseUrl === official.baseUrl
+            ? { type: "disabled" }
+            : undefined,
+        );
+        assert.equal(
+          sent.reasoning_effort,
+          thinkingMode === "disabled" && baseUrl !== official.baseUrl ? "none" : undefined,
+        );
+        signatures.add(reasoningSignature(provider));
+      }
+      assert.equal(signatures.size, 1);
+    }
+  }
+});
+
+test("只有明确开启思考才发送预选强度，默认强度与关闭或接口默认的缓存互相隔离", async () => {
+  for (const reasoningEffort of ["default", "low", "high", "max"]) {
+    const provider = { ...official, thinkingMode: "enabled", reasoningEffort };
+    const sent = await requestFor(provider);
+    assert.deepEqual(sent.thinking, { type: "enabled" });
+    assert.equal(
+      sent.reasoning_effort,
+      reasoningEffort === "default" ? undefined : reasoningEffort,
+    );
+    assert.notEqual(
+      reasoningSignature(provider),
+      reasoningSignature({ ...provider, thinkingMode: "disabled" }),
+    );
+    assert.notEqual(
+      reasoningSignature(provider),
+      reasoningSignature({ ...provider, thinkingMode: "default" }),
+    );
+  }
+  assert.throws(
+    () => normalizeSettings({ providers: { deepseek: { thinkingMode: "invalid" } } }),
+    /思考模式无效/,
+  );
 });
 
 test("思考流只读取最终译文，推理内容不写入页面或返回结果", async () => {

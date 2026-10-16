@@ -1,5 +1,9 @@
 import { normalizeShortcut } from "./shortcut.js";
-import { normalizeReasoningEffort, reasoningSignature } from "./reasoning.js";
+import {
+  normalizeReasoningEffort,
+  normalizeThinkingMode,
+  reasoningSignature,
+} from "./reasoning.js";
 
 /** @typedef {'deepseek'|'openai'} ProviderId 支持的 API 服务。 */
 /**
@@ -8,6 +12,7 @@ import { normalizeReasoningEffort, reasoningSignature } from "./reasoning.js";
  * @property {string} baseUrl API 根地址或完整的 Chat Completions 地址。
  * @property {string} model 用户可修改的模型名称。
  * @property {string} reasoningEffort 推理档位；default 表示不指定，none 表示关闭思考。
+ * @property {'disabled'|'enabled'|'default'} [thinkingMode] DeepSeek 独立思考开关，推理档位仅开启时生效。
  */
 /**
  * @typedef {Object} Settings 持久设置；不包含网页或译文缓存。
@@ -48,7 +53,8 @@ export const DEFAULT_SETTINGS = {
       apiKey: "",
       baseUrl: "https://api.deepseek.com",
       model: "deepseek-flash",
-      reasoningEffort: "none",
+      thinkingMode: "disabled",
+      reasoningEffort: "default",
     },
     openai: {
       apiKey: "",
@@ -141,6 +147,14 @@ export function normalizeSettings(input = {}) {
       candidate.reasoningEffort,
       providers[id].baseUrl,
     );
+    if (id === "deepseek") {
+      // 仅补齐读取结果，不主动重写存档；旧 none/具体档位分别还原为关闭/开启。
+      providers[id].thinkingMode = normalizeThinkingMode(
+        candidate.thinkingMode,
+        providers[id].reasoningEffort,
+      );
+      if (providers[id].reasoningEffort === "none") providers[id].reasoningEffort = "default";
+    }
     if (!providers[id].model || providers[id].model.length > 200) {
       throw new Error("模型名称不能为空，且不能超过 200 个字符。");
     }
@@ -176,6 +190,7 @@ export function publicSettings(settings) {
     provider: settings.provider,
     model: current.model,
     reasoningEffort: current.reasoningEffort,
+    thinkingMode: current.thinkingMode,
     reasoningSignature: reasoning,
     targetLanguage: settings.targetLanguage,
     mode: settings.mode,

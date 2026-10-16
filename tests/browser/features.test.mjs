@@ -76,11 +76,14 @@ test("推理级别在服务卡片内分别选择，连接测试和保存请求�
   const openai = options.getByRole("combobox", { name: "OpenAI 推理级别", exact: true });
   assert.deepEqual(
     await deepseek.locator("option").evaluateAll((items) => items.map((item) => item.value)),
-    ["default", "none", "low", "high", "max"],
+    ["default", "low", "high", "max"],
   );
   await expect(deepseek).toHaveValue("default");
   await expect(openai).toHaveValue("default");
   const before = (await message({ type: "GET_SETTINGS" })).data;
+  await options
+    .getByRole("combobox", { name: "DeepSeek 思考模式", exact: true })
+    .selectOption("enabled");
   await deepseek.selectOption("max");
   await openai.selectOption("medium");
   await options.locator('[data-test="deepseek"]').click();
@@ -90,10 +93,14 @@ test("推理级别在服务卡片内分别选择，连接测试和保存请求�
   await expect(options.locator("#saveStatus")).toContainText("已保存");
   const expected = structuredClone(before);
   expected.providers.deepseek.reasoningEffort = "max";
+  expected.providers.deepseek.thinkingMode = "enabled";
   expected.providers.openai.reasoningEffort = "medium";
   assert.deepEqual((await message({ type: "GET_SETTINGS" })).data, expected);
   await options.reload();
   await expect(deepseek).toHaveValue("max");
+  await expect(
+    options.getByRole("combobox", { name: "DeepSeek 思考模式", exact: true }),
+  ).toHaveValue("enabled");
   await expect(openai).toHaveValue("medium");
   await options
     .locator('[data-provider="deepseek"]')
@@ -116,7 +123,10 @@ test("推理级别保存后重启正在翻译的页面，缓存分档保留且�
   await translate(page);
   await expect.poll(async () => (await message({ type: "GET_CACHE_STATS" })).data.count).toBe(1);
   const original = (await message({ type: "EXPORT_CACHE" })).data.entries[0];
-  const chooseEffort = async (effort) => {
+  const chooseEffort = async (effort, mode = "enabled") => {
+    await options
+      .getByRole("combobox", { name: "DeepSeek 思考模式", exact: true })
+      .selectOption(mode);
     await options
       .getByRole("combobox", { name: "DeepSeek 推理级别", exact: true })
       .selectOption(effort);
@@ -135,7 +145,7 @@ test("推理级别保存后重启正在翻译的页面，缓存分档保留且�
         JSON.stringify(entry.parts) === JSON.stringify(original.parts),
     ),
   );
-  await chooseEffort("default");
+  await chooseEffort("default", "default");
   await expect(page.locator("#source [data-yeyi-owned=translation]")).toHaveCount(1);
   await expect
     .poll(async () => {
@@ -149,6 +159,55 @@ test("推理级别保存后重启正在翻译的页面，缓存分档保留且�
     .toMatchObject({ active: true, done: 1, phase: "watching" });
   assert.equal(fixture.requests.length, before + 2);
   assert.deepEqual((await message({ type: "EXPORT_CACHE" })).data, stored);
+});
+
+test("关闭思考时调高推理级别不启动思考、不重译或覆盖缓存，重新开启后才按预选级别请求", async (t) => {
+  const mode = options.getByRole("combobox", { name: "DeepSeek 思考模式", exact: true });
+  const effort = options.getByRole("combobox", { name: "DeepSeek 推理级别", exact: true });
+  await mode.selectOption("disabled");
+  await effort.selectOption("low");
+  await options.locator('[name="cacheEnabled"]').check();
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  const page = await article(t);
+  const before = fixture.requests.length;
+  await translate(page);
+  assert.equal(fixture.requests.at(-1).body.reasoning_effort, "none");
+  await expect.poll(async () => (await message({ type: "GET_CACHE_STATS" })).data.count).toBe(1);
+  const original = (await message({ type: "EXPORT_CACHE" })).data;
+  await effort.selectOption("max");
+  await expect(mode).toHaveValue("disabled");
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  await expect(page.locator("#source [data-yeyi-owned=translation]")).toHaveCount(1);
+  assert.equal(fixture.requests.length, before + 1);
+  assert.deepEqual((await message({ type: "EXPORT_CACHE" })).data, original);
+  await options.reload();
+  await expect(mode).toHaveValue("disabled");
+  await expect(effort).toHaveValue("max");
+  await options.locator('[data-test="deepseek"]').click();
+  await expect(options.locator('[data-result="deepseek"]')).toContainText("连接成功");
+  assert.equal(fixture.requests.at(-1).body.reasoning_effort, "none");
+  await mode.selectOption("enabled");
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  await expect.poll(() => fixture.requests.length).toBe(before + 3);
+  assert.equal(fixture.requests.at(-1).body.reasoning_effort, "max");
+  await expect.poll(async () => (await message({ type: "GET_CACHE_STATS" })).data.count).toBe(2);
+  await mode.selectOption("disabled");
+  await options.locator("#saveButton").click();
+  await expect(options.locator("#saveStatus")).toContainText("已保存");
+  await expect
+    .poll(async () => {
+      const tabs = await worker.evaluate(() => chrome.tabs.query({}));
+      const tab = tabs.find((tab) => tab.url === page.url());
+      return worker.evaluate(
+        (tabId) => chrome.tabs.sendMessage(tabId, { type: "GET_STATE" }, { frameId: 0 }),
+        tab.id,
+      );
+    })
+    .toMatchObject({ active: true, done: 1, phase: "watching" });
+  assert.equal(fixture.requests.length, before + 3);
 });
 
 test("推理级别非法配置不能覆盖本机设置，OpenAI 选项完整且保存后仍可测试", async () => {

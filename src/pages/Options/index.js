@@ -1,6 +1,6 @@
 import { DEFAULT_SETTINGS, LANGUAGES, normalizeSettings } from "../../shared/settings.js";
 import { shortcutFromEvent } from "../../shared/shortcut.js";
-import { REASONING_LEVELS } from "../../shared/reasoning.js";
+import { REASONING_LEVELS, THINKING_MODES } from "../../shared/reasoning.js";
 import { sendMessage, populateLanguages } from "../../shared/messaging.js";
 import { ModelPicker } from "./components/ModelPicker/index.js";
 import { NameDictionaryEditor } from "./components/NameDictionary/index.js";
@@ -17,11 +17,13 @@ let cacheRefreshTimer;
 populateLanguages(form.elements.targetLanguage, LANGUAGES);
 for (const id of ["deepseek", "openai"]) {
   const levels = REASONING_LEVELS.filter(
-    ([level]) => id !== "deepseek" || ["default", "none", "low", "high", "max"].includes(level),
+    ([level]) => id !== "deepseek" || ["default", "low", "high", "max"].includes(level),
   );
   for (const [value, label] of levels)
     form.elements[`${id}ReasoningEffort`].add(new Option(label, value));
 }
+for (const [value, label] of THINKING_MODES)
+  form.elements.deepseekThinkingMode.add(new Option(label, value));
 new NameDictionaryEditor(document.querySelector("#names"));
 
 /** 从表单读取并校验可保存配置。@returns {Object} 配置对象。 */
@@ -36,6 +38,7 @@ function readForm() {
           model: form.elements[`${id}Model`].value,
           baseUrl: form.elements[`${id}Url`].value,
           reasoningEffort: form.elements[`${id}ReasoningEffort`].value,
+          thinkingMode: form.elements[`${id}ThinkingMode`]?.value,
         },
       ]),
     ),
@@ -264,6 +267,7 @@ document.querySelectorAll("[data-key]").forEach((button) =>
 /** 载入本机配置，不在任何控制台输出密钥。@returns {Promise<void>} 初始化完成。 */
 async function initialize() {
   const settings = await sendMessage({ type: "GET_SETTINGS" });
+  form.elements.deepseekThinkingMode.value = settings.providers.deepseek.thinkingMode;
   for (const id of ["deepseek", "openai"]) {
     form.elements[`${id}Key`].value = settings.providers[id].apiKey;
     form.elements[`${id}Model`].value = settings.providers[id].model;

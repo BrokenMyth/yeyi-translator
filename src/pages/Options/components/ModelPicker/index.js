@@ -17,6 +17,8 @@ export class ModelPicker {
     this.input = root.querySelector(`[name="${provider}Model"]`);
     /** @type {HTMLSelectElement} 测试连接与保存设置共用的推理档位。 */
     this.reasoningSelect = root.querySelector(`[name="${provider}ReasoningEffort"]`);
+    /** @type {HTMLSelectElement|null} DeepSeek 的独立思考开关，OpenAI 不提供此字段。 */
+    this.thinkingSelect = root.querySelector(`[name="${provider}ThinkingMode"]`);
     /** @type {HTMLSelectElement} 接口返回的模型及手动输入入口。 */
     this.select = root.querySelector("[data-model-picker]");
     /** @type {HTMLButtonElement} 重新获取列表的入口。 */
@@ -50,6 +52,7 @@ export class ModelPicker {
       baseUrl: normalizeBaseUrl(this.urlInput.value),
       model: this.input.value.trim(),
       reasoningEffort: this.reasoningSelect.value,
+      ...(this.thinkingSelect ? { thinkingMode: this.thinkingSelect.value } : {}),
     };
   }
 
