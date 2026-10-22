@@ -1,6 +1,7 @@
 import { publicSettings } from "../shared/settings.js";
 import { translateBatch, validateSegments, TranslationError } from "./api.js";
 import { CACHE_FORMAT, validCacheEntry, validateCacheFile } from "../shared/cache-file.js";
+import { translationProfile } from "../shared/translation-profile.js";
 
 export const CACHE_PREFIX = "translationCache:v1:";
 const INDEX_KEY = "translationCacheIndexV1";
@@ -137,14 +138,16 @@ export class TranslationCache {
   }
 }
 
-/** 以服务、端点、模型、目标语言、节点分片和上下文生成稳定摘要；排版与临时 ID 不影响复用。 */
+/** 以配置、原文和专用提示词版本生成摘要；仅日语使用新身份，其他旧缓存保持兼容。 */
 export async function cacheKey(signature, segment) {
+  const profile = translationProfile(segment);
   const bytes = new TextEncoder().encode(
     JSON.stringify([
       signature,
       segment.parts,
       segment.context || "",
       ...(segment.dictionaryOnly ? [true] : []),
+      ...(profile ? [["prompt", profile]] : []),
     ]),
   );
   const digest = await crypto.subtle.digest("SHA-256", bytes);
