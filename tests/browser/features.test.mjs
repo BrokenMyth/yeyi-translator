@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { resolve, dirname, basename } from "node:path";
 import { chromium, expect } from "@playwright/test";
 import { startServer } from "./server.mjs";
+import { cacheKey, CACHE_PREFIX } from "../../src/background/cache.js";
 
 const output = resolve("test-results");
 const profile = resolve(output, `feature-profile-${Date.now()}`);
@@ -636,17 +637,107 @@ test("网页内容脚本不能读取、清除、导出或导入持久缓存", as
   assert.equal(await page.locator("#source").textContent(), "Reusable source paragraph.");
 });
 
-test("关闭并重启浏览器后仍复用已保存译文", async (t) => {
+test("8344 条缓存跨天重启后复用日英译文，不等待新内容的慢请求", async (t) => {
   await settings({ cacheEnabled: true });
-  const page = await article(t);
-  await translate(page);
+  // 使用与问题现场相同的条数，在独立浏览器 profile 内构造约 2 MiB 的缓存。
+  const seeded = await message({
+    type: "IMPORT_CACHE",
+    data: {
+      format: "yeyi-translation-cache",
+      version: 1,
+      entries: Array.from({ length: 8304 }, (_, index) => ({
+        key: index.toString(16).padStart(64, "0"),
+        parts: ["仅用于缓存容量回归的模拟译文，不属于用户数据。"],
+      })),
+    },
+  });
+  assert.equal(seeded.ok, true);
+  const body = Array.from(
+    { length: 40 },
+    (_, index) =>
+      `<p class="cached" id="cached${index}">${index % 2 ? `Read this forum post ${index}.` : `これ<strong>最高</strong>じゃん、その${index}。`}</p>`,
+  ).join("");
+  const page = await article(t, body);
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator(".cached [data-yeyi-owned=translation]")).toHaveCount(40);
   const before = fixture.requests.length;
+  const saved = (await message({ type: "EXPORT_CACHE" })).data;
+  const savedSettings = (await message({ type: "GET_SETTINGS" })).data;
+  assert.equal(saved.entries.length, 8344);
+  const bytes = (await message({ type: "GET_CACHE_STATS" })).data.bytes;
   await context.close();
   await launch();
-  const restarted = await article(t);
-  await translate(restarted);
-  assert.equal(fixture.requests.length, before);
-  assert.equal((await message({ type: "GET_CACHE_STATS" })).data.count, 1);
+  // 只推进测试 worker 的日期，证明身份与保存时间无关；不修改用户电脑时钟。
+  await worker.evaluate(() => {
+    const now = Date.now;
+    Date.now = () => now() + 2 * 24 * 60 * 60 * 1000;
+  });
+  fixture.state.delayMs = 8000;
+  t.after(() => {
+    fixture.state.delayMs = 0;
+  });
+  const restarted = await article(t, `<p id="slow">New uncached forum post.</p>${body}`);
+  const started = performance.now();
+  await restarted.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(restarted.locator(".cached [data-yeyi-owned=translation]")).toHaveCount(40);
+  const elapsedMs = Math.round(performance.now() - started);
+  await expect.poll(() => fixture.requests.length).toBe(before + 1);
+  assert.deepEqual(
+    fixture.requests
+      .slice(before)
+      .flatMap((request) =>
+        JSON.parse(request.body.messages.at(-1).content).segments.flatMap(
+          (segment) => segment.parts,
+        ),
+      ),
+    ["New uncached forum post."],
+  );
+  await expect(restarted.locator("#slow [data-yeyi-owned=translation]")).toHaveCount(0);
+  assert.deepEqual((await message({ type: "EXPORT_CACHE" })).data, saved);
+  assert.deepEqual((await message({ type: "GET_SETTINGS" })).data, savedSettings);
+  t.diagnostic(`8344 条 / ${bytes} 字节；重启后 40 段缓存显示耗时 ${elapsedMs} ms，缓存零重译。`);
+});
+
+test("异常缓存只重译一次，实际磁盘修复后刷新和重启仍可复用", async (t) => {
+  await settings({ cacheEnabled: true });
+  const config = (await message({ type: "GET_PUBLIC_CONFIG" })).data;
+  const sources = ["Missing cached forum post.", "Invalid cached forum post.", "これ最高だね。"];
+  const keys = await Promise.all(
+    sources.map(
+      async (text) => CACHE_PREFIX + (await cacheKey(config.signature, { parts: [text] })),
+    ),
+  );
+  await worker.evaluate(
+    (keys) =>
+      chrome.storage.local.set({
+        translationCacheIndexV1: keys,
+        [keys[1]]: "损坏的正文",
+        [keys[2]]: ["分片数量", "不符合原文"],
+      }),
+    keys,
+  );
+  const savedSettings = (await message({ type: "GET_SETTINGS" })).data;
+  const body = sources.map((text) => `<p class="repair">${text}</p>`).join("");
+  const before = fixture.requests.length;
+  const page = await article(t, body);
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator(".repair [data-yeyi-owned=translation]")).toHaveCount(3);
+  assert.equal(fixture.requests.length, before + 1);
+  const repaired = (await message({ type: "EXPORT_CACHE" })).data;
+  assert.equal(repaired.entries.length, 3);
+  assert(repaired.entries.every((entry) => entry.parts.length === 1));
+  await page.reload();
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(page.locator(".repair [data-yeyi-owned=translation]")).toHaveCount(3);
+  assert.equal(fixture.requests.length, before + 1);
+  await context.close();
+  await launch();
+  const restarted = await article(t, body);
+  await restarted.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(restarted.locator(".repair [data-yeyi-owned=translation]")).toHaveCount(3);
+  assert.equal(fixture.requests.length, before + 1);
+  assert.deepEqual((await message({ type: "EXPORT_CACHE" })).data, repaired);
+  assert.deepEqual((await message({ type: "GET_SETTINGS" })).data, savedSettings);
 });
 
 test("可视区域模式推迟屏幕外同源和跨域 iframe，滚动出现后开始翻译", async (t) => {
