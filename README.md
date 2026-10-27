@@ -2,7 +2,7 @@
 
 页译使用你自己的 **DeepSeek 或 OpenAI API Key** 翻译网页，支持原文与译文逐段对照，也支持用译文替换原文。
 
-**当前版本：1.3.7。** 普通用户下载安装包即可使用，不需要安装 Node.js。
+**当前源码版本：1.3.8（缓存修复测试包）。** Releases 已发布安装包仍为 **1.3.7**。普通用户下载安装包即可使用，不需要安装 Node.js。
 
 [下载安装包](https://github.com/T-miracle/yeyi-translator/releases/latest) · [查看全部版本](https://github.com/T-miracle/yeyi-translator/releases)
 
@@ -310,7 +310,7 @@ npm run build
 npm run package
 ```
 
-当前版本的安装包会写入 `release/yeyi-translator-1.3.7.zip`。
+当前版本的安装包会写入 `release/yeyi-translator-1.3.8.zip`。
 
 ### 运行检查和测试
 
