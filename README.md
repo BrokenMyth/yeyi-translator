@@ -2,7 +2,7 @@
 
 页译使用你自己的 **DeepSeek 或 OpenAI API Key** 翻译网页，支持原文与译文逐段对照，也支持用译文替换原文。
 
-**当前源码版本：1.3.8（缓存修复测试包）。** Releases 已发布安装包仍为 **1.3.7**。普通用户下载安装包即可使用，不需要安装 Node.js。
+**当前源码版本：1.3.9。** 普通用户使用安装包即可使用，不需要安装 Node.js。
 
 [下载安装包](https://github.com/T-miracle/yeyi-translator/releases/latest) · [查看全部版本](https://github.com/T-miracle/yeyi-translator/releases)
 
@@ -22,6 +22,7 @@
 | 只翻译可视页面   | 默认关闭；开启后优先处理可视段落，并向上下各预翻译 10 句   |
 | Discord 兼容     | 自动排除消息作者、回复作者和成员昵称，保留聊天正文翻译     |
 | 持久翻译缓存     | 默认关闭；开启后跨页面、刷新和重启复用，支持导入导出与清理 |
+| 译文来源统计     | 悬浮设置和工具栏区分缓存命中、新翻译及无需翻译的段落       |
 | 人名字典         | 固定角色译名，支持增删改、搜索及 AiNiee JSON 导入导出      |
 | 自动获取模型     | 填入 Key 后自动获取可用模型，也可以手动填写模型 ID         |
 | 指定网站自动翻译 | 为常用网站开启自动翻译，其他网站保持手动                   |
@@ -310,7 +311,7 @@ npm run build
 npm run package
 ```
 
-当前版本的安装包会写入 `release/yeyi-translator-1.3.8.zip`。
+当前版本的安装包会写入 `release/yeyi-translator-1.3.9.zip`。
 
 ### 运行检查和测试
 

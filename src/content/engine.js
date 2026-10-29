@@ -111,14 +111,26 @@ export class TranslationEngine {
           });
   }
 
-  /** 返回可展示的进度，永远不包括原文和密钥。@returns {Object} 本 frame 状态。 */
+  /**
+   * 按当前仍在页面中的已完成段落统计来源，扫描、暂停或重试不会累计重复次数。
+   * 整段全部复用才算缓存；部分分片新译的段落只计一次新翻译，零任务段落单列为无需翻译。
+   * @returns {Object} 不包含原文和密钥的本 frame 状态。
+   */
   getState() {
     const units = [...this.units.values()].filter((unit) => unit.element.isConnected);
+    const completed = units.filter((unit) => unit.chunks.every((chunk) => chunk.state === "done"));
+    const skipped = completed.filter((unit) => !unit.chunks.length).length;
+    const cached = completed.filter(
+      (unit) => unit.chunks.length && unit.chunks.every((chunk) => chunk.cacheHit),
+    ).length;
     return {
       phase: this.phase,
       active: this.active,
       total: units.length,
-      done: units.filter((unit) => unit.chunks.every((chunk) => chunk.state === "done")).length,
+      done: completed.length,
+      cached,
+      translated: completed.length - cached - skipped,
+      skipped,
       failed: units.filter((unit) => unit.chunks.some((chunk) => chunk.state === "failed")).length,
       retrying: units.filter((unit) =>
         unit.chunks.some(
@@ -255,6 +267,7 @@ export class TranslationEngine {
               continue;
             }
             chunk.translated = parts;
+            chunk.cacheHit = true;
             chunk.state = "done";
             if (unit.chunks.every((item) => item.state === "done")) {
               this.remember(unit);
@@ -460,6 +473,7 @@ export class TranslationEngine {
         if (cached && cached.value.length === unit.chunks.length) {
           unit.chunks.forEach((chunk, index) => {
             chunk.translated = cached.value[index];
+            chunk.cacheHit = true;
             chunk.state = "done";
           });
           this.renderUnit(unit);
@@ -750,11 +764,14 @@ export class TranslationEngine {
         retryFragments: tasks.length === 1 && tasks[0].chunk.retryFragments === true,
       });
       if (!this.active || runId !== this.runId) return;
-      const results = new Map(translated.map((item) => [item.id, item.parts]));
+      const results = new Map(translated.map((item) => [item.id, item]));
       this.mutate(() => {
         for (const { unit, chunk } of tasks) {
           if (this.units.get(unit.element) !== unit) continue;
-          chunk.translated = results.get(chunk.id);
+          const result = results.get(chunk.id);
+          chunk.translated = result.parts;
+          // 后台请求前还有一次缓存核对，不能仅因发过 TRANSLATE_BATCH 就算作新翻译。
+          chunk.cacheHit = result.cacheHit === true;
           chunk.state = "done";
           if (unit.chunks.every((item) => item.state === "done")) {
             if (cacheRevision === this.cacheRevision) this.remember(unit);

@@ -982,6 +982,100 @@ test("日语专用提示词按原文启用，混排、内联汉字、还原及�
   );
 });
 
+test("译文来源统计在悬浮面板和工具栏一致，暂停、还原及刷新后来源正确", async (t) => {
+  await settings({ cacheEnabled: true });
+  const warmup = await article(t, '<p id="source">Cached browser source.</p>');
+  await translate(warmup);
+  await warmup.close();
+  const before = fixture.requests.length;
+  fixture.state.delayMs = 1500;
+  t.after(() => {
+    fixture.state.delayMs = 0;
+  });
+  const page = await article(
+    t,
+    '<p id="cached">Cached browser source.</p><p id="fresh">New browser source.</p><p>这是无需翻译的中文。</p>',
+  );
+  await page.getByRole("button", { name: "打开翻译设置" }).click();
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  const sources = page.locator(".source-status");
+  await expect(sources).toHaveText("缓存命中 1 段 · 新翻译 0 段 · 无需翻译 1 段");
+  await expect(page.locator("#fresh [data-yeyi-owned=translation]")).toHaveCount(1);
+  const mixed = "缓存命中 1 段 · 新翻译 1 段 · 无需翻译 1 段";
+  await expect(sources).toHaveText(mixed);
+  assert.equal(fixture.requests.length, before + 1);
+  await page
+    .locator("#yeyi-settings")
+    .screenshot({ path: resolve(output, "translation-sources-panel.png") });
+  await page.setViewportSize({ width: 280, height: 700 });
+  assert(
+    await page
+      .locator("#yeyi-settings")
+      .evaluate((panel) => panel.scrollWidth <= panel.clientWidth),
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  // 打开真实工具栏页面但保留正文为活动标签，验证 GET_TAB_STATE 与悬浮面板共用汇总。
+  await page.bringToFront();
+  const opened = context.waitForEvent("page");
+  await worker.evaluate(
+    (url) => chrome.tabs.create({ url, active: false }),
+    `chrome-extension://${extensionId}/pages/Popup/index.html`,
+  );
+  const popup = await opened;
+  t.after(async () => {
+    if (!popup.isClosed()) await popup.close();
+  });
+  await popup.waitForLoadState();
+  await expect(popup.locator("#progressSources")).toHaveText(mixed);
+  await popup
+    .locator("#progressCard")
+    .screenshot({ path: resolve(output, "translation-sources-popup.png") });
+  await popup.close();
+
+  await page.getByRole("button", { name: "暂停翻译", exact: true }).click();
+  await expect(sources).toHaveText(mixed);
+  await page.getByRole("button", { name: "继续翻译", exact: true }).click();
+  await expect(sources).toHaveText(mixed);
+  await page.getByRole("button", { name: "替换原文", exact: true }).click();
+  await expect(page.getByRole("button", { name: "替换原文", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(sources).toHaveText(mixed);
+  await page.getByRole("button", { name: "恢复原文", exact: true }).click();
+  await expect(sources).toBeHidden();
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(sources).toHaveText("缓存命中 2 段 · 新翻译 0 段 · 无需翻译 1 段");
+  assert.equal(fixture.requests.length, before + 1);
+  await page.reload();
+  await page.getByRole("button", { name: "打开翻译设置" }).click();
+  await page.getByRole("button", { name: "翻译此页", exact: true }).click();
+  await expect(sources).toHaveText("缓存命中 2 段 · 新翻译 0 段 · 无需翻译 1 段");
+  assert.equal(fixture.requests.length, before + 1);
+});
+
+test("译文来源统计汇总子页面，移除 iframe 后不保留过期计数", async (t) => {
+  await settings({ cacheEnabled: true });
+  const warmup = await article(t);
+  await translate(warmup);
+  await warmup.close();
+  const page = await article(
+    t,
+    `<p id="source">Reusable source paragraph.</p><iframe src="${fixture.url}/frame"></iframe>`,
+  );
+  await page.getByRole("button", { name: "打开翻译设置" }).click();
+  await translate(page);
+  await expect(
+    page.frameLocator("iframe").locator("#frameText [data-yeyi-owned=translation]"),
+  ).toHaveCount(1);
+  await expect(page.locator(".source-status")).toHaveText("缓存命中 1 段 · 新翻译 1 段");
+  await expect(page.locator(".status")).toContainText("2 / 2 段已完成");
+  await page.locator("iframe").evaluate((frame) => frame.remove());
+  await expect(page.locator(".source-status")).toHaveText("缓存命中 1 段 · 新翻译 0 段");
+  await expect(page.locator(".status")).toContainText("1 / 1 段已完成");
+});
+
 for (const cacheEnabled of [false, true]) {
   test(`连续动态内容合并为一次 HTTP 请求（缓存${cacheEnabled ? "开启" : "关闭"}）`, async (t) => {
     await settings({ cacheEnabled });

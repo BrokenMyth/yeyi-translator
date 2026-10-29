@@ -24,7 +24,7 @@ async function startPage(t, html, { deferLookup = false, cacheEnabled = true } =
   t.after(() => page.close());
   await page.route("http://127.0.0.1/", (route) =>
     route.fulfill({
-      contentType: "text/html",
+      contentType: "text/html; charset=utf-8",
       body: `<!doctype html><html><body><main>${html}</main></body></html>`,
     }),
   );
@@ -170,4 +170,133 @@ test("查询失败回退到正常翻译，停用缓存不发起预检", async (t
   const disabled = await startPage(t, "<p>Cached source.</p>", { cacheEnabled: false });
   assert.equal(await disabled.evaluate(() => lookups.length), 0);
   await expect.poll(() => requestTexts(disabled)).toEqual(["Cached source."]);
+});
+
+/** 比较用户可见的段落来源，避免把请求次数或拆分片段当成段落数。 */
+const sourceCounts = (page) =>
+  page.evaluate(() => {
+    const { done, cached, translated, skipped } = engine.getState();
+    return { done, cached, translated, skipped };
+  });
+
+test("来源统计区分缓存、新译和无需翻译，暂停与扫描不重复计数，恢复后本页缓存可复用", async (t) => {
+  const page = await startPage(t, "<p>Cached source.</p><p>Fresh source.</p><p>这是中文原文。</p>");
+  await expect.poll(() => page.evaluate(() => requests.length)).toBe(1);
+  assert.deepEqual(await sourceCounts(page), { done: 2, cached: 1, translated: 0, skipped: 1 });
+  await page.evaluate(() =>
+    requests[0].resolve({
+      ok: true,
+      data: requests[0].message.segments.map((segment) => ({
+        id: segment.id,
+        parts: ["新译正文"],
+        cacheHit: false,
+      })),
+    }),
+  );
+  await expect
+    .poll(() => sourceCounts(page))
+    .toEqual({ done: 3, cached: 1, translated: 1, skipped: 1 });
+  await page.evaluate(() => {
+    engine.scan();
+    engine.scan();
+    engine.stop();
+    engine.start(engine.config);
+    engine.setMode("replace");
+  });
+  assert.deepEqual(await sourceCounts(page), { done: 3, cached: 1, translated: 1, skipped: 1 });
+  await page.evaluate(() => engine.restore());
+  assert.deepEqual(await sourceCounts(page), { done: 0, cached: 0, translated: 0, skipped: 0 });
+  await page.evaluate(() => engine.start({ ...engine.config, cacheEnabled: false }));
+  await expect
+    .poll(() => sourceCounts(page))
+    .toEqual({ done: 3, cached: 2, translated: 0, skipped: 1 });
+  assert.equal(await page.evaluate(() => requests.length), 1);
+});
+
+test("后台二次命中仍算缓存，动态节点回收后按当前段落重新统计", async (t) => {
+  const page = await startPage(
+    t,
+    '<p id="late">Previously uncached source.</p><p id="fresh">Fresh source.</p>',
+  );
+  await expect.poll(() => page.evaluate(() => requests.length)).toBe(1);
+  await page.evaluate(() =>
+    requests[0].resolve({
+      ok: true,
+      data: requests[0].message.segments.map((segment, index) => ({
+        id: segment.id,
+        parts: ["正文译文"],
+        cacheHit: index === 0,
+      })),
+    }),
+  );
+  await expect
+    .poll(() => sourceCounts(page))
+    .toEqual({ done: 2, cached: 1, translated: 1, skipped: 0 });
+  await page.evaluate(() => {
+    document.querySelector("#late").remove();
+    document.querySelector("#fresh").outerHTML = '<p id="fresh">Fresh source.</p>';
+    engine.scan();
+  });
+  assert.deepEqual(await sourceCounts(page), { done: 1, cached: 1, translated: 0, skipped: 0 });
+  assert.equal(await page.evaluate(() => requests.length), 1);
+});
+
+test("同段部分分片缓存、部分新译只算一段新翻译，未完成时不提前计数", async (t) => {
+  const page = await startPage(
+    t,
+    `<p>${Array.from({ length: 40 }, (_, index) => `<span>Cached fragment ${index}.</span>`).join("")}<span>Fresh tail.</span></p>`,
+  );
+  await expect.poll(() => page.evaluate(() => requests.length)).toBe(1);
+  assert.deepEqual(await sourceCounts(page), { done: 0, cached: 0, translated: 0, skipped: 0 });
+  assert.deepEqual(await requestTexts(page), ["Fresh tail."]);
+  await page.evaluate(() =>
+    requests[0].resolve({
+      ok: true,
+      data: requests[0].message.segments.map((segment) => ({
+        id: segment.id,
+        parts: ["新译尾句"],
+        cacheHit: false,
+      })),
+    }),
+  );
+  await expect
+    .poll(() => sourceCounts(page))
+    .toEqual({ done: 1, cached: 0, translated: 1, skipped: 0 });
+});
+
+test("失败和迟到响应不计入完成来源，重试成功只计一次", async (t) => {
+  const page = await startPage(t, "<p>Fresh source.</p>");
+  await expect.poll(() => page.evaluate(() => requests.length)).toBe(1);
+  await page.evaluate(() =>
+    requests[0].resolve({ ok: false, error: { code: "NETWORK", message: "测试网络失败" } }),
+  );
+  await expect.poll(() => page.evaluate(() => requests.length)).toBe(2);
+  assert.deepEqual(await sourceCounts(page), { done: 0, cached: 0, translated: 0, skipped: 0 });
+  await page.evaluate(() => {
+    engine.stop();
+    engine.start(engine.config);
+    requests[1].resolve({
+      ok: true,
+      data: requests[1].message.segments.map((segment) => ({
+        id: segment.id,
+        parts: ["过期响应"],
+        cacheHit: false,
+      })),
+    });
+  });
+  await expect.poll(() => page.evaluate(() => requests.length)).toBe(3);
+  assert.deepEqual(await sourceCounts(page), { done: 0, cached: 0, translated: 0, skipped: 0 });
+  await page.evaluate(() =>
+    requests[2].resolve({
+      ok: true,
+      data: requests[2].message.segments.map((segment) => ({
+        id: segment.id,
+        parts: ["重试成功"],
+        cacheHit: false,
+      })),
+    }),
+  );
+  await expect
+    .poll(() => sourceCounts(page))
+    .toEqual({ done: 1, cached: 0, translated: 1, skipped: 0 });
 });
